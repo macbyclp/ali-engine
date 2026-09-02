@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "anim/animation.hpp"
 #include "assets/gltf.hpp"
 #include "assets/texture.hpp"
 #include "core/log.hpp"
@@ -117,6 +118,15 @@ void Scene::load_json(const json& j) {
         if (je.contains("behavior")) {
             registry.emplace<Behavior>(e, Behavior{je["behavior"], false});
         }
+        if (je.contains("animation")) {
+            const auto& ja = je["animation"];
+            AnimationPlayer ap;
+            ap.clip = ja.value("clip", std::string());
+            ap.speed = ja.value("speed", 1.0f);
+            ap.loop = ja.value("loop", true);
+            ap.playing = ja.value("playing", true);
+            registry.emplace<AnimationPlayer>(e, ap);
+        }
         if (je.contains("camera")) {
             const auto& jc = je["camera"];
             CameraComp c;
@@ -180,6 +190,10 @@ json Scene::to_json() const {
         }
         if (auto* b = registry.try_get<Behavior>(e)) {
             if (b->rules.is_array() && !b->rules.empty()) je["behavior"] = b->rules;
+        }
+        if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
+            je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},
+                               {"loop", ap->loop}, {"playing", ap->playing}};
         }
         if (auto* c = registry.try_get<CameraComp>(e)) {
             je["camera"] = {
@@ -298,15 +312,28 @@ void Scene::resolve_gpu_meshes() {
         std::string key = mr.primitive;
         if (mr.primitive == "gltf") key = "gltf:" + mr.gltf_path;
 
-        auto& slot = cache_slot(key);
-        if (!slot) {
-            if (mr.primitive == "sphere") slot = Mesh::sphere();
-            else if (mr.primitive == "plane") slot = Mesh::plane();
-            else if (mr.primitive == "gltf" && !mr.gltf_path.empty())
-                slot = load_gltf_mesh(mr.gltf_path, &gltf_mat_cache()[mr.gltf_path]);
-            if (!slot) slot = Mesh::cube();
+        if (mr.primitive == "skinned") {
+            static std::unordered_map<std::string, std::shared_ptr<SkinnedModel>> skin_cache;
+            auto& sm = skin_cache[mr.gltf_path];
+            if (!sm) {
+                if (mr.gltf_path.rfind("builtin:", 0) == 0)
+                    sm = builtin_skinned(mr.gltf_path.substr(8));
+                else
+                    sm = load_gltf_skinned(mr.gltf_path);
+            }
+            mr.skinned = sm;
+            mr.gpu = sm ? sm->mesh : Mesh::cube();
+        } else {
+            auto& slot = cache_slot(key);
+            if (!slot) {
+                if (mr.primitive == "sphere") slot = Mesh::sphere();
+                else if (mr.primitive == "plane") slot = Mesh::plane();
+                else if (mr.primitive == "gltf" && !mr.gltf_path.empty())
+                    slot = load_gltf_mesh(mr.gltf_path, &gltf_mat_cache()[mr.gltf_path]);
+                if (!slot) slot = Mesh::cube();
+            }
+            mr.gpu = slot;
         }
-        mr.gpu = slot;
 
         if (mr.primitive == "gltf" && !mr.gltf_path.empty()) {
             const GltfMaterial& gm = gltf_mat_cache()[mr.gltf_path];

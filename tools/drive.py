@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Minimal driver for ali-engine's JSON line protocol.
 
-Usage: python tools/drive.py [engine.exe]
+Usage: python tools/drive.py [engine.exe] [gltf_path]
 
-Demonstrates the scene graph (parent/child) and prefabs.
+Demonstrates skeletal animation (M9) with the builtin skinned test model,
+plus a static prop if a glTF path is given.
 """
 import json
 import subprocess
@@ -12,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
+GLTF = sys.argv[2] if len(sys.argv) > 2 else None
 
 
 def main() -> int:
@@ -37,44 +39,31 @@ def main() -> int:
 
     call("ping")
     call("scene.reset")
-    call("entity.spawn", name="floor", primitive="plane", scale=[16, 1, 16],
+    call("entity.spawn", name="floor", primitive="plane", scale=[14, 1, 14],
          base_color_map="builtin:checker", uv_scale=[8, 8], roughness=0.9)
 
-    # --- scene graph: a turret assembled from parented parts ---
-    call("entity.spawn", name="turret", primitive="cube", position=[0, 0.4, 0],
-         scale=[1.6, 0.8, 1.6], base_color=[0.35, 0.38, 0.42])
-    call("entity.spawn", name="turret_head", primitive="cube", position=[0, 0.9, 0],
-         scale=[1.0, 0.6, 1.0], base_color=[0.7, 0.5, 0.3], parent="turret")
-    call("entity.spawn", name="turret_barrel", primitive="cube",
-         position=[0, 0.1, 1.1], scale=[0.18, 0.18, 1.6],
-         base_color=[0.2, 0.2, 0.25], parent="turret_head")
-    # rotate only the head; the barrel follows because it's a child
-    call("behavior.set", name="turret_head", behaviors=[
-        {"on": "tick", "do": [{"action": "spin", "axis": [0, 1, 0], "speed_deg": 45}]}
-    ])
+    # three copies of the builtin skinned bar, animation phase-offset by start time
+    for i, x in enumerate([-3, 0, 3]):
+        call("entity.spawn", name=f"bar{i}", primitive="skinned",
+             gltf_path="builtin:bendbar", position=[x, 0, 0],
+             base_color=[0.3 + 0.2 * i, 0.6, 0.85 - 0.2 * i],
+             animation={"clip": "wave", "speed": 1.0 + 0.3 * i})
+        print(f"bar{i} clips:", call("animation.list", name=f"bar{i}")["result"]["clips"])
 
-    # --- prefab: build a "tree", save it, stamp copies ---
-    call("entity.spawn", name="tree", primitive="cube", position=[0, 0.6, 0],
-         scale=[0.3, 1.2, 0.3], base_color=[0.4, 0.26, 0.15])
-    call("entity.spawn", name="tree_crown", primitive="sphere", position=[0, 1.1, 0],
-         scale=[1.3, 1.3, 1.3], base_color=[0.2, 0.55, 0.25], parent="tree")
-    print("prefab.save:", call("prefab.save", root="tree",
-                                path=str(ROOT / "prefabs" / "tree.json")))
-    call("entity.destroy", name="tree")
-    call("entity.destroy", name="tree_crown")
-
-    for i, (x, z) in enumerate([(-5, -3), (5, -4), (-4, 4), (6, 3)]):
-        print("instantiate:", call("prefab.instantiate",
-              path=str(ROOT / "prefabs" / "tree.json"),
-              name=f"tree{i}", position=[x, 0, z])["result"]["created"])
+    if GLTF:
+        call("entity.spawn", name="model", primitive="skinned", gltf_path=GLTF,
+             position=[0, 0, -4])
+        print("model clips:", call("animation.list", name="model")["result"])
+        call("animation.play", name="model")
 
     call("light.set", name="sun", direction=[-0.5, -1, -0.35], intensity=3.2)
-    call("camera.set", position=[7, 5, 10], target=[0, 1, 0], fov_deg=55)
-    call("world.step", dt=1 / 60, steps=45)   # let the head rotate a bit
+    call("camera.set", position=[0, 3.5, 11], target=[0, 2, 0], fov_deg=55)
 
+    call("world.step", dt=1 / 60, steps=40)
     call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
+    call("world.step", dt=1 / 60, steps=30)
+    call("observe.screenshot", path=str(ROOT / "screenshots" / "drive_b.png"))
     print("stats:", call("observe.stats")["result"])
-    print("entities:", call("entity.list")["result"]["names"])
     call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)

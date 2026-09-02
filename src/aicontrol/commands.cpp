@@ -1,4 +1,5 @@
 #include "aicontrol/commands.hpp"
+#include "anim/animation_system.hpp"
 #include "core/log.hpp"
 #include <filesystem>
 #include <fstream>
@@ -93,6 +94,19 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
 
             if (p.contains("parent"))
                 scene.registry.emplace<Hierarchy>(e, Hierarchy{p["parent"].get<std::string>()});
+
+            if (p.contains("animation")) {
+                const json& ja = p["animation"];
+                AnimationPlayer ap;
+                if (ja.is_string()) ap.clip = ja.get<std::string>();
+                else {
+                    ap.clip = ja.value("clip", std::string());
+                    ap.speed = ja.value("speed", 1.0f);
+                    ap.loop = ja.value("loop", true);
+                    ap.playing = ja.value("playing", true);
+                }
+                scene.registry.emplace<AnimationPlayer>(e, ap);
+            }
 
             if (p.contains("body")) {
                 const json& jb = p["body"];
@@ -198,10 +212,43 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
+                update_animations(scene, dt);
                 ctx.behaviors.tick(scene, ctx.physics, dt);
                 ctx.physics.step(scene, dt, substeps);
             }
             return ok(id, {{"stepped", steps}, {"dt", dt}});
+        }
+        if (method == "animation.play") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto& ap = scene.registry.get_or_emplace<AnimationPlayer>(e);
+            if (p.contains("clip")) ap.clip = p["clip"].get<std::string>();
+            ap.speed = p.value("speed", ap.speed);
+            ap.loop = p.value("loop", ap.loop);
+            ap.playing = true;
+            if (p.value("restart", false)) ap.time = 0.0f;
+            return ok(id);
+        }
+        if (method == "animation.pause") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            if (auto* ap = scene.registry.try_get<AnimationPlayer>(e)) ap->playing = false;
+            return ok(id);
+        }
+        if (method == "animation.stop") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            if (auto* ap = scene.registry.try_get<AnimationPlayer>(e)) { ap->playing = false; ap->time = 0.0f; }
+            return ok(id);
+        }
+        if (method == "animation.list") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* mr = scene.registry.try_get<MeshRenderer>(e);
+            json clips = json::array();
+            if (mr && mr->skinned)
+                for (auto& [k, v] : mr->skinned->clips) clips.push_back(k);
+            return ok(id, {{"clips", clips}});
         }
         if (method == "behavior.set") {
             auto e = scene.find(p.at("name").get<std::string>());

@@ -39,6 +39,11 @@ Materyale göre gruplama → instancing korunur.
 Prefab = JSON alt-ağaç: `prefab.save`, `prefab.instantiate` (isim önekleme + kök konumlama).
 glTF çok-node hiyerarşi: node transformları vertex'lere baked, çok-parçalı modeller korunur.
 
+**M9 ✅** Animasyon: skinned mesh (Vertex joint/weight), `Skeleton` (bind pose + inverse
+bind), `AnimationClip` (T/R/S kanalları, lineer + slerp interp), `AnimationPlayer` component,
+GPU skinning (128 kemik, ayrı çizim yolu). glTF skin + animasyon import. Prosedürel test
+modeli `builtin:bendbar`. `animation.play/pause/stop/list`.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -55,5 +60,5 @@ python tools/drive.py                                           # örnek AI sür
 
 ## Yol haritası
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
-M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · **M8 sahne grafı & prefab ✅** · M9 animasyon ·
+M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · **M9 animasyon ✅** ·
 M10 ışık & gölge · M11 karakter & navigasyon · M12 ses & partikül & post

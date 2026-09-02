@@ -1,4 +1,5 @@
 #pragma once
+#include "anim/animation.hpp"
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
 #include <memory>
@@ -23,5 +24,9 @@ struct GltfMaterial {
 // Referenced textures (external files or embedded images) are registered in the
 // Texture cache under the returned keys.
 std::shared_ptr<Mesh> load_gltf_mesh(const std::string& path, GltfMaterial* out_material = nullptr);
+
+// Loads the first skinned mesh of a glTF plus its skeleton and animation clips.
+// Returns nullptr if the file has no skin.
+std::shared_ptr<SkinnedModel> load_gltf_skinned(const std::string& path);
 
 } // namespace eng

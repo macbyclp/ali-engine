@@ -44,6 +44,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `entity.setParent` | `{name, parent}` (boş parent = ayır) | — |
 | `prefab.save` | `{root, path}` | `{path, entities}` |
 | `prefab.instantiate` | `{path, name, position?}` | `{created:[...]}` |
+| `animation.play` | `{name, clip?, speed?, loop?, restart?}` | — |
+| `animation.pause` / `animation.stop` | `{name}` | — |
+| `animation.list` | `{name}` | `{clips:[...]}` |
 | `light.set` | `{name?, direction?, color?, intensity?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |
@@ -79,6 +82,11 @@ Kurallar `world.step` ve `physics.play` sırasında her adımda değerlendirilir
 base_color_map, normal_map, metallic_roughness_map, emissive_map, ao_map }`.
 Doku anahtarı = dosya yolu **veya** `builtin:<checker|grid|uv|normal|bumps>`.
 glTF yüklenince dosyanın materyali otomatik gelir; verdiğin alanlar üzerine yazar.
+
+### Animasyon (`primitive: "skinned"`)
+`entity.spawn {primitive: "skinned", gltf_path: "<.glb|.gltf>" veya "builtin:bendbar",
+animation: {clip, speed?, loop?}}`. glTF skin + klipleri otomatik yüklenir. Sonra
+`animation.play/pause/stop`, `animation.list` ile klip adları.
 
 ### Fizik (`body`)
 `entity.spawn`/`entity.setBody` içinde: `{type: "static"|"dynamic"|"kinematic",

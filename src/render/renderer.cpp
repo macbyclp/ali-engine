@@ -31,20 +31,40 @@ vec3 skyColor(vec3 dir, vec3 sunDir) {
 }
 )";
 
-// vertex 0..3 = pos/normal/uv/tangent ; instance 4..7 = mat4, 8 = albedo+rough,
-// 9 = metallic + uvscale, 10 = emissive
+// vertex 0..3 = pos/normal/uv/tangent, 11 = joints, 12 = weights
+// instance 4..7 = mat4, 8 = albedo+rough, 9 = metallic + uvscale, 10 = emissive
 static const char* kInstanceInputs = R"(
 layout(location=4) in mat4 iModel;
 layout(location=8) in vec4 iAlbedoRough;
 layout(location=9) in vec4 iMetalUV;
 layout(location=10) in vec4 iEmissive;
+layout(location=11) in ivec4 aJoints;
+layout(location=12) in vec4 aWeights;
+uniform int uSkinned;
+uniform mat4 uJoints[128];
+mat4 skinMatrix() {
+    return aWeights.x * uJoints[aJoints.x] + aWeights.y * uJoints[aJoints.y]
+         + aWeights.z * uJoints[aJoints.z] + aWeights.w * uJoints[aJoints.w];
+}
 )";
 
 static const char* kShadowVert = R"(
 layout(location=0) in vec3 aPos;
 layout(location=4) in mat4 iModel;
+layout(location=11) in ivec4 aJoints;
+layout(location=12) in vec4 aWeights;
 uniform mat4 uLightVP;
-void main() { gl_Position = uLightVP * iModel * vec4(aPos, 1.0); }
+uniform int uSkinned;
+uniform mat4 uJoints[128];
+void main() {
+    vec3 p = aPos;
+    if (uSkinned == 1) {
+        mat4 sm = aWeights.x * uJoints[aJoints.x] + aWeights.y * uJoints[aJoints.y]
+                + aWeights.z * uJoints[aJoints.z] + aWeights.w * uJoints[aJoints.w];
+        p = (sm * vec4(aPos, 1.0)).xyz;
+    }
+    gl_Position = uLightVP * iModel * vec4(p, 1.0);
+}
 )";
 static const char* kShadowFrag = R"(void main() {})";
 
@@ -87,11 +107,21 @@ out float vRough;
 out float vMetallic;
 out vec3 vEmissive;
 void main() {
-    vec4 w = iModel * vec4(aPos, 1.0);
+    vec3 p = aPos;
+    vec3 nrm = aNormal;
+    vec3 tng = aTangent.xyz;
+    if (uSkinned == 1) {
+        mat4 sm = skinMatrix();
+        p = (sm * vec4(aPos, 1.0)).xyz;
+        mat3 sm3 = mat3(sm);
+        nrm = sm3 * aNormal;
+        tng = sm3 * aTangent.xyz;
+    }
+    vec4 w = iModel * vec4(p, 1.0);
     vWorld = w.xyz;
     mat3 nm = mat3(transpose(inverse(iModel)));
-    vN = normalize(nm * aNormal);
-    vT = normalize(nm * aTangent.xyz);
+    vN = normalize(nm * nrm);
+    vT = normalize(nm * tng);
     vB = cross(vN, vT) * aTangent.w;
     vUV = aUV * iMetalUV.yz;
     vLightSpace = uLightVP * w;
@@ -262,6 +292,12 @@ Renderer::Renderer(int w, int h)
     glVertexArrayAttribFormat(draw_vao_, 1, 3, GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
     glVertexArrayAttribFormat(draw_vao_, 2, 2, GL_FLOAT, GL_FALSE, offsetof(Vertex, uv));
     glVertexArrayAttribFormat(draw_vao_, 3, 4, GL_FLOAT, GL_FALSE, offsetof(Vertex, tangent));
+    glEnableVertexArrayAttrib(draw_vao_, 11);
+    glVertexArrayAttribIFormat(draw_vao_, 11, 4, GL_INT, offsetof(Vertex, joints));
+    glVertexArrayAttribBinding(draw_vao_, 11, 0);
+    glEnableVertexArrayAttrib(draw_vao_, 12);
+    glVertexArrayAttribFormat(draw_vao_, 12, 4, GL_FLOAT, GL_FALSE, offsetof(Vertex, weights));
+    glVertexArrayAttribBinding(draw_vao_, 12, 0);
 
     for (unsigned c = 0; c < 4; ++c) {
         glEnableVertexArrayAttrib(draw_vao_, 4 + c);
@@ -313,6 +349,8 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
 
     struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
     std::vector<Item> items;
+    struct SkinItem { MeshRenderer* mr; glm::mat4 model; const std::vector<glm::mat4>* joints; };
+    std::vector<SkinItem> skinned;
     glm::vec3 sc(0); int nn = 0;
     for (auto [e, wt, mr] : scene.registry.view<WorldTransform, MeshRenderer>().each()) {
         if (!mr.gpu) continue;
@@ -321,6 +359,15 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
                     glm::length(glm::vec3(model[2]))};
         float ms = std::max({s.x, s.y, s.z});
         glm::vec3 wc = glm::vec3(model * glm::vec4(mr.gpu->bounds_center(), 1.0f));
+
+        if (mr.skinned) {
+            auto* ap = scene.registry.try_get<AnimationPlayer>(e);
+            const std::vector<glm::mat4>* jm =
+                (ap && !ap->joint_matrices.empty()) ? &ap->joint_matrices : nullptr;
+            skinned.push_back({&mr, model, jm});
+            sc += wt.position; ++nn;
+            continue;
+        }
         items.push_back({&mr, mr.gpu.get(), model, wc, mr.gpu->bounds_radius() * ms});
         sc += wt.position; ++nn;
     }
@@ -367,6 +414,33 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         return at;
     };
 
+    auto draw_skinned = [&](Shader& sh) {
+        for (auto& si : skinned) {
+            Mesh* mesh = si.mr->gpu.get();
+            if (!mesh) continue;
+            InstanceData d{si.model, glm::vec4(si.mr->base_color, si.mr->roughness),
+                           glm::vec4(si.mr->metallic, si.mr->uv_scale.x, si.mr->uv_scale.y, 0),
+                           glm::vec4(si.mr->emissive, 0)};
+            std::vector<InstanceData> one{d};
+            GLintptr at = upload(one);
+            if (si.joints) {
+                int cnt = std::min((int)si.joints->size(), kMaxJoints);
+                sh.set("uSkinned", 1);
+                glUniformMatrix4fv(glGetUniformLocation(sh.id(), "uJoints"), cnt, GL_FALSE,
+                                   (const float*)si.joints->data());
+            } else {
+                sh.set("uSkinned", 0);
+            }
+            glVertexArrayVertexBuffer(draw_vao_, 0, mesh->vbo(), 0, sizeof(Vertex));
+            glVertexArrayElementBuffer(draw_vao_, mesh->ebo());
+            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+            glDrawElementsInstanced(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT, nullptr, 1);
+            sh.set("uSkinned", 0);
+            stats_.draw_calls++;
+            stats_.instances += 1;
+        }
+    };
+
     // pass 1: shadow
     shadow_map_.bind();
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -374,6 +448,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glCullFace(GL_FRONT);
     shadow_.use();
     shadow_.set("uLightVP", light_vp);
+    shadow_.set("uSkinned", 0);
     glBindVertexArray(draw_vao_);
     for (auto& [key, insts] : all_groups) {
         if (insts.empty()) continue;
@@ -384,6 +459,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
                                 nullptr, (GLsizei)insts.size());
     }
+    draw_skinned(shadow_);
     glCullFace(GL_BACK);
 
     // pass 2: HDR scene
@@ -401,6 +477,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
 
     glBindTextureUnit(0, shadow_map_.depth_texture());
     pbr_.use();
+    pbr_.set("uSkinned", 0);
     pbr_.set("uViewProj", view_proj);
     pbr_.set("uLightVP", light_vp);
     pbr_.set("uCamPos", cam.position);
@@ -432,7 +509,11 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         stats_.draw_calls++;
         stats_.instances += (int)insts.size();
     }
+    pbr_.set("uHas", 0);
+    draw_skinned(pbr_);
     stats_.groups = (int)visible_groups.size();
+    stats_.entities += (int)skinned.size();
+    stats_.visible += (int)skinned.size();
 
     // pass 3: tonemap
     glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);

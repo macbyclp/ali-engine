@@ -1,4 +1,5 @@
 #pragma once
+#include "anim/animation.hpp"
 #include "assets/texture.hpp"
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
@@ -61,6 +62,18 @@ struct MeshRenderer {
 
     std::shared_ptr<Mesh> gpu;           // resolved, not serialized
     std::shared_ptr<Texture> t_base, t_normal, t_mr, t_emissive, t_ao;
+    std::shared_ptr<SkinnedModel> skinned;   // set when the asset has a skeleton
+};
+
+// Plays an animation clip on a skinned MeshRenderer. joint_matrices is filled
+// each frame by AnimationSystem and consumed by the renderer.
+struct AnimationPlayer {
+    std::string clip;
+    float time = 0.0f;
+    float speed = 1.0f;
+    bool loop = true;
+    bool playing = true;
+    std::vector<glm::mat4> joint_matrices;
 };
 
 struct DirectionalLight {
