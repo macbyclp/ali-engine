@@ -1,5 +1,6 @@
 /build/
-/build-web/
+/build-*/
+/screenshots/
 *.o
 *.obj
 compile_commands.json
