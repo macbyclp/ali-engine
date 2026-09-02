@@ -1,0 +1,58 @@
+ali-engine v0.1.0  (Windows x64)
+================================
+
+An AI-native 3D game engine. An AI agent builds and runs a whole game over a
+JSON command stream; humans get an Unreal-style editor and Blueprint visual
+scripting on top -- same data model.
+
+Repo:  https://github.com/macbyclp/ali-engine
+
+
+Requirements
+------------
+* Windows 10/11, 64-bit
+* A GPU with OpenGL 4.5 (any modern NVIDIA / AMD / Intel)
+
+The Visual C++ runtime DLLs (msvcp140.dll, vcruntime140*.dll) are bundled next
+to engine.exe -- no separate install needed. Keep them in the same folder.
+
+
+Run
+---
+  engine.exe --headless --scene scenes/showcase.json     # AI-driving mode
+  engine.exe --scene scenes/showcase.json --play         # visible window
+  engine.exe --editor --scene scenes/showcase.json       # full GUI editor
+
+Drive it from Python (needs Python 3 + Pillow for the GIF helper):
+  python tools/drive.py
+
+
+Talking to the engine
+---------------------
+The engine reads one JSON request per line on stdin and answers one JSON
+response per line on stdout. Logs go to stderr.
+
+  {"method":"scene.reset"}
+  {"method":"entity.spawn","params":{"name":"ball","primitive":"sphere",
+     "position":[0,5,0],"body":{"type":"dynamic","restitution":0.8}}}
+  {"method":"world.step","params":{"dt":0.016,"steps":180}}
+  {"method":"observe.screenshot","params":{"path":"out.png"}}
+
+Full command reference: docs/AI-PROTOCOL.md
+
+
+Editor
+------
+  --editor  opens the ImGui editor:
+    Palette / Hierarchy / Details / Viewport / Animations / Timeline / Output Log
+
+  Viewport:  RMB drag = orbit,  MMB drag = pan,  wheel = zoom
+  Toolbar:   Play toggles physics + behaviours + animation
+  Designer / Graph toggle (top-right)  ->  Graph mode is the Blueprint node editor.
+    Select an entity, right-click to add nodes, drag pins to wire, Compile.
+    A behaviour the AI wrote shows up here as nodes automatically.
+
+  File -> Save  writes the scene to scenes/edited.json
+
+
+License: MIT  (see LICENSE)
