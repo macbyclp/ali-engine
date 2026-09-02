@@ -7,6 +7,7 @@
 #include "game/gamestate.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
+#include "editor/editor.hpp"
 #include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
@@ -15,6 +16,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -23,6 +25,7 @@ using nlohmann::json;
 
 int main(int argc, char** argv) {
     bool headless = false;
+    bool editor_mode = false;
     bool start_playing = false;
     int width = 1280, height = 720;
     std::string scene_path;
@@ -30,12 +33,14 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--headless") headless = true;
+        else if (a == "--editor") editor_mode = true;
         else if (a == "--play") start_playing = true;
         else if (a == "--scene" && i + 1 < argc) scene_path = argv[++i];
         else if (a == "--width" && i + 1 < argc) width = std::stoi(argv[++i]);
         else if (a == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
     }
 
+    if (editor_mode) headless = false;
     eng::Window window(width, height, "ali-engine", headless);
     eng::Renderer renderer(width, height);
     eng::Framebuffer offscreen(width, height, eng::ColorFormat::RGBA8, false);
@@ -51,9 +56,12 @@ int main(int argc, char** argv) {
     eng::AudioEngine audio;
     eng::GameState game;
 
-    eng::ControlChannel channel;
+    eng::ControlChannel channel(!editor_mode);
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
+
+    std::unique_ptr<eng::Editor> editor;
+    if (editor_mode) editor = std::make_unique<eng::Editor>(window.handle());
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
                    scene_path.empty() ? "(none)" : scene_path.c_str());
@@ -99,13 +107,16 @@ int main(int argc, char** argv) {
                 last_write = scene_mtime();
         }
 
+        if (editor) editor->begin_frame();
+
+        bool sim = editor ? editor->wants_play() : ctx.sim_running;
         eng::update_animations(scene, dt);
         eng::update_particles(scene, dt);
         {
             eng::CameraComp& c = scene.camera();
             audio.set_listener(c.position, glm::normalize(c.target - c.position));
         }
-        if (ctx.sim_running) {
+        if (sim) {
             behaviors.tick(scene, physics, game, dt);
             physics.step(scene, dt);
             physics.step_characters(scene, dt);
@@ -113,7 +124,18 @@ int main(int argc, char** argv) {
             physics.sync(scene);
         }
 
-        if (!headless) {
+        if (editor) {
+            int vw, vh;
+            editor->wanted_viewport(vw, vh);
+            offscreen.resize(vw, vh);
+            renderer.render(scene, offscreen.id(), vw, vh);
+            eng::Framebuffer::bind_default(window.width(), window.height());
+            glClearColor(0.06f, 0.06f, 0.07f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            editor->draw(ctx, offscreen.color_texture(), vw, vh);
+            editor->end_frame();
+            window.swap();
+        } else if (!headless) {
             renderer.render(scene, 0, window.width(), window.height());
             window.swap();
         } else {

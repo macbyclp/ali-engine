@@ -13,7 +13,7 @@ namespace eng {
 // loop never blocks; the main thread drains and answers.
 class ControlChannel {
 public:
-    ControlChannel();
+    explicit ControlChannel(bool quit_on_eof = true);
     ~ControlChannel();
 
     bool poll(nlohmann::json& out_request);   // false if nothing pending

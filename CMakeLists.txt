@@ -35,6 +35,10 @@ FetchContent_Declare(cgltf GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
     GIT_TAG v1.14)
 FetchContent_Declare(miniaudio GIT_REPOSITORY https://github.com/mackron/miniaudio.git
     GIT_TAG 0.11.21)
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.91.5-docking)
+FetchContent_Declare(imguizmo GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG ba662b119d64f9ab700bb2cd7b2781f9044f5565)
 
 set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
@@ -47,15 +51,27 @@ FetchContent_Declare(jolt
     GIT_TAG v5.2.0
     SOURCE_SUBDIR Build)
 
-FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt miniaudio)
+FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt miniaudio imgui imguizmo)
 glad_add_library(glad_gl46 STATIC API gl:core=4.6)
+
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp)
+target_include_directories(imgui PUBLIC
+    ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imguizmo_SOURCE_DIR})
+target_link_libraries(imgui PUBLIC glfw)
 
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 add_executable(engine ${ENGINE_SOURCES})
 target_include_directories(engine PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
 target_link_libraries(engine PRIVATE
-    glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glfw glad_gl46 Jolt)
+    glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glfw glad_gl46 Jolt imgui)
 
 target_compile_definitions(engine PRIVATE
     ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}"

@@ -7,8 +7,8 @@ using nlohmann::json;
 
 namespace eng {
 
-ControlChannel::ControlChannel() {
-    reader_ = std::thread([this] {
+ControlChannel::ControlChannel(bool quit_on_eof) {
+    reader_ = std::thread([this, quit_on_eof] {
         std::string line;
         while (!stop_ && std::getline(std::cin, line)) {
             if (line.empty()) continue;
@@ -21,9 +21,11 @@ ControlChannel::ControlChannel() {
                 respond(err);
             }
         }
-        // stdin closed -> ask main loop to quit
-        std::lock_guard<std::mutex> lk(mtx_);
-        in_.push(json{{"method", "quit"}, {"id", nullptr}});
+        // stdin closed -> ask main loop to quit (unless a human is driving the editor)
+        if (quit_on_eof) {
+            std::lock_guard<std::mutex> lk(mtx_);
+            in_.push(json{{"method", "quit"}, {"id", nullptr}});
+        }
     });
 }
 
