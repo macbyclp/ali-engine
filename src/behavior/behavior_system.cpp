@@ -45,38 +45,32 @@ static std::string interp(const std::string& in, const GameState& gs) {
     return out;
 }
 
+// A behaviour `spawn` action takes flat entity params (primitive, base_color,
+// body, ...). Reshape them into the scene's entity-JSON schema and hand off to
+// Scene::load_entity so every component kind is supported consistently.
 static void spawn_from_json(Scene& scene, const json& p) {
-    auto e = scene.create(p.value("name", std::string("spawned")));
-    auto& t = scene.registry.get<Transform>(e);
-    t.position = v3(p.value("position", json()), t.position);
-    t.euler_deg = v3(p.value("rotation", json()), t.euler_deg);
+    json je;
+    je["name"] = p.value("name", std::string("spawned"));
+    json tr;
+    if (p.contains("position")) tr["position"] = p["position"];
+    if (p.contains("rotation")) tr["rotation"] = p["rotation"];
     if (p.contains("scale")) {
-        if (p["scale"].is_number()) t.scale = glm::vec3(p["scale"].get<float>());
-        else t.scale = v3(p["scale"], t.scale);
+        tr["scale"] = p["scale"].is_number()
+            ? json::array({p["scale"], p["scale"], p["scale"]}) : p["scale"];
     }
-    MeshRenderer mr;
-    mr.primitive = p.value("primitive", std::string("cube"));
-    mr.gltf_path = p.value("gltf_path", std::string());
-    mr.base_color = v3(p.value("base_color", json()), mr.base_color);
-    mr.metallic = p.value("metallic", mr.metallic);
-    mr.roughness = p.value("roughness", mr.roughness);
-    mr.emissive = v3(p.value("emissive", json()), mr.emissive);
-    mr.base_color_map = p.value("base_color_map", std::string());
-    mr.normal_map = p.value("normal_map", std::string());
-    mr.metallic_roughness_map = p.value("metallic_roughness_map", std::string());
-    scene.registry.emplace<MeshRenderer>(e, mr);
-    if (p.contains("body")) {
-        const json& jb = p["body"];
-        RigidBody rb;
-        rb.type = jb.value("type", std::string("dynamic"));
-        rb.shape = jb.value("shape", std::string());
-        rb.mass = jb.value("mass", rb.mass);
-        rb.restitution = jb.value("restitution", rb.restitution);
-        rb.friction = jb.value("friction", rb.friction);
-        scene.registry.emplace<RigidBody>(e, rb);
-    }
-    if (p.contains("behavior"))
-        scene.registry.emplace<Behavior>(e, Behavior{p["behavior"], false});
+    if (!tr.empty()) je["transform"] = tr;
+
+    json mesh;
+    for (const char* k : {"primitive", "gltf_path", "base_color", "metallic", "roughness",
+                          "emissive", "base_color_map", "normal_map", "metallic_roughness_map",
+                          "emissive_map", "ao_map", "uv_scale"})
+        if (p.contains(k)) mesh[k] = p[k];
+    if (!mesh.empty()) je["mesh"] = mesh;
+
+    for (const char* k : {"body", "behavior", "light", "particles", "ui", "character", "animation", "parent"})
+        if (p.contains(k)) je[k] = p[k];
+
+    scene.load_entity(je);
     scene.resolve_gpu_meshes();
 }
 
@@ -216,9 +210,9 @@ void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, GameState& gs, f
         run_rules(scene, physics, gs, e, "tick", "", dt, to_destroy, to_spawn);
     }
 
-    for (auto& p : to_spawn) spawn_from_json(scene, p);
     for (auto e : to_destroy)
         if (scene.registry.valid(e)) scene.registry.destroy(e);
+    for (auto& p : to_spawn) spawn_from_json(scene, p);
     if (!to_spawn.empty() || !to_destroy.empty()) physics.sync(scene);
 }
 

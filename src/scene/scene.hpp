@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace eng {
 
@@ -11,6 +12,11 @@ namespace eng {
 // Every entity has a unique Name that the AI uses to address it.
 class Scene {
 public:
+    Scene();
+    ~Scene();
+    Scene(const Scene&) = delete;
+    Scene& operator=(const Scene&) = delete;
+
     entt::registry registry;
 
     entt::entity create(const std::string& name);   // auto-suffixes on collision
@@ -22,6 +28,7 @@ public:
 
     void clear();
     void load_json(const nlohmann::json& j);
+    entt::entity load_entity(const nlohmann::json& entity_json);   // append one entity
     nlohmann::json to_json() const;
 
     bool load_file(const std::string& path);
@@ -39,6 +46,12 @@ public:
     void resolve_gpu_meshes();
 
 private:
+    // name -> entity, kept in sync by EnTT signals so it cannot go stale even when
+    // other systems emplace/destroy through `registry` directly.
+    std::unordered_map<std::string, entt::entity> index_;
+    void on_name_set(entt::registry&, entt::entity);
+    void on_name_removed(entt::registry&, entt::entity);
+
     std::string unique_name(const std::string& base) const;
 };
 

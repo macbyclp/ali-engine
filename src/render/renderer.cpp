@@ -721,7 +721,10 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         if (vis[i]) { visible_groups[key].push_back(d); stats_.visible++; }
     }
     stats_.culled = stats_.entities - stats_.visible;
-    ensure_instances(std::max<size_t>(items.size() * 2, 1) * sizeof(InstanceData));
+    // one frame uploads: kCascades shadow passes (all groups) + 1 visible pass,
+    // packed consecutively into the ring buffer -- size for the worst case so the
+    // cursor never wraps and stomps data a pending draw still needs.
+    ensure_instances(std::max<size_t>(items.size() * (kCascades + 2), 1) * sizeof(InstanceData));
 
     // ---- cascaded shadow maps: fit an ortho box to each view sub-frustum ----
     glm::vec3 up = std::abs(sun_dir.y) > 0.99f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
