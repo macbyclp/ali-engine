@@ -4,6 +4,7 @@
 #include "audio/audio.hpp"
 #include "behavior/behavior_system.hpp"
 #include "fx/particles.hpp"
+#include "game/gamestate.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 #include "nav/navgrid.hpp"
@@ -48,9 +49,10 @@ int main(int argc, char** argv) {
     eng::BehaviorSystem behaviors;
     eng::NavGrid nav;
     eng::AudioEngine audio;
+    eng::GameState game;
 
     eng::ControlChannel channel;
-    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, scene_path};
+    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
@@ -104,7 +106,7 @@ int main(int argc, char** argv) {
             audio.set_listener(c.position, glm::normalize(c.target - c.position));
         }
         if (ctx.sim_running) {
-            behaviors.tick(scene, physics, dt);
+            behaviors.tick(scene, physics, game, dt);
             physics.step(scene, dt);
             physics.step_characters(scene, dt);
         } else {

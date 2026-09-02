@@ -1,6 +1,7 @@
 #include "aicontrol/commands.hpp"
 #include "anim/animation_system.hpp"
 #include "fx/particles.hpp"
+#include "scene/transform_system.hpp"
 #include "core/log.hpp"
 #include <filesystem>
 #include <fstream>
@@ -233,7 +234,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
                 update_animations(scene, dt);
                 update_particles(scene, dt);
-                ctx.behaviors.tick(scene, ctx.physics, dt);
+                ctx.behaviors.tick(scene, ctx.physics, ctx.game, dt);
                 ctx.physics.step(scene, dt, substeps);
                 ctx.physics.step_characters(scene, dt);
             }
@@ -293,6 +294,60 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
         if (method == "audio.stop") {
             ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
             return ok(id);
+        }
+        if (method == "checkpoint.save") {
+            std::string name = p.value("name", std::string("default"));
+            ctx.checkpoints[name] = {{"scene", scene.to_json()}, {"state", ctx.game.values}};
+            return ok(id, {{"name", name}});
+        }
+        if (method == "checkpoint.restore") {
+            std::string name = p.value("name", std::string("default"));
+            auto it = ctx.checkpoints.find(name);
+            if (it == ctx.checkpoints.end()) return fail(id, "no checkpoint: " + name);
+            scene.load_json(it->second.value("scene", json::object()));
+            ctx.game.values = it->second.value("state", json::object());
+            ctx.game.timers.clear();
+            ctx.physics.sync(scene);
+            return ok(id);
+        }
+        if (method == "state.set") {
+            ctx.game.values[p.at("key").get<std::string>()] = p.value("value", json());
+            return ok(id);
+        }
+        if (method == "state.get") {
+            std::string k = p.at("key").get<std::string>();
+            if (!ctx.game.values.contains(k)) return ok(id, {{"value", nullptr}});
+            return ok(id, {{"value", ctx.game.values[k]}});
+        }
+        if (method == "state.list") return ok(id, ctx.game.values);
+        if (method == "state.clear") { ctx.game.values = json::object(); ctx.game.timers.clear(); return ok(id); }
+        if (method == "timer.after") {
+            ctx.game.timers.push_back({p.value("seconds", 1.0f), p.at("event").get<std::string>()});
+            return ok(id);
+        }
+        if (method == "observe.view") {
+            CameraComp saved = scene.camera();
+            CameraComp& c = scene.camera();
+            c.position = v3(p.value("position", json()), c.position);
+            c.target = v3(p.value("target", json()), c.target);
+            c.fov_deg = p.value("fov_deg", c.fov_deg);
+            int vw = p.value("width", ctx.offscreen.width());
+            int vh = p.value("height", ctx.offscreen.height());
+            ctx.offscreen.resize(vw, vh);
+            std::string path = p.value("path", std::string());
+            if (path.empty()) {
+                fs::path dir = fs::path(ENGINE_ASSET_DIR) / "screenshots";
+                fs::create_directories(dir);
+                path = (dir / "view.png").string();
+            } else {
+                if (fs::path(path).has_parent_path()) fs::create_directories(fs::path(path).parent_path());
+            }
+            ctx.renderer.render(scene, ctx.offscreen.id(), vw, vh);
+            bool saved_ok = ctx.offscreen.save_png(path);
+            Framebuffer::bind_default(vw, vh);
+            c = saved;   // restore scene camera
+            if (!saved_ok) return fail(id, "view render failed");
+            return ok(id, {{"path", path}, {"width", vw}, {"height", vh}});
         }
         if (method == "ui.add" || method == "ui.set") {
             std::string name = p.at("name").get<std::string>();
@@ -458,6 +513,29 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 if (rb.registered && rb.handle == h.body)
                     r["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, r);
+        }
+        if (method == "observe.entities") {
+            update_world_transforms(scene);
+            CameraComp& cam = scene.camera();
+            int vw = ctx.offscreen.width(), vh = ctx.offscreen.height();
+            glm::mat4 vp = cam.proj(vh ? float(vw) / vh : 1.0f) * cam.view();
+            json arr = json::array();
+            for (auto [e, n, wt] : scene.registry.view<Name, WorldTransform>().each()) {
+                glm::vec4 clip = vp * glm::vec4(wt.position, 1.0f);
+                bool in_view = clip.w > 0.0f &&
+                               std::abs(clip.x) <= clip.w && std::abs(clip.y) <= clip.w &&
+                               clip.z >= -clip.w && clip.z <= clip.w;
+                json je = {{"name", n.value},
+                           {"position", v3(wt.position)},
+                           {"distance", glm::length(wt.position - cam.position)},
+                           {"in_view", in_view}};
+                if (clip.w > 0.0f) {
+                    je["screen"] = json::array({(clip.x / clip.w * 0.5f + 0.5f) * vw,
+                                                (0.5f - clip.y / clip.w * 0.5f) * vh});
+                }
+                arr.push_back(je);
+            }
+            return ok(id, {{"entities", arr}, {"width", vw}, {"height", vh}});
         }
         if (method == "observe.stats") {
             ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),

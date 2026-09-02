@@ -88,10 +88,10 @@ python tools/drive.py                                           # örnek AI sür
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
 M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
 M10 ışık ✅ · M11 karakter & navigasyon ✅ · M12 ses & partikül & post ✅ · M13 UI & metin ✅ ·
-**M14 CSM + animasyon blend ✅**
+M14 CSM + animasyon blend ✅ · **M15 AI gözlem + gameplay ✅**
 
-**Godot paritesi sürüyor:** M15 AI gözlem + gameplay katmanı (timer/state/koşul) ·
-sonra spot gölge, animasyon state machine, terrain, SSAO, Recast navmesh
+**Kalan cila:** spot ışık gölgesi, animasyon state machine, terrain, SSAO, Recast navmesh,
+prosedürel mesh/CSG, ses bus'ları.
 
 **M13 ✅** UI & metin: `Font` (stb_truetype atlas), `UIElement` component
 (panel/text/bar, 9 anchor), ekran-uzayı UI pass, `ui.add/set/remove`. HUD, can barı,
@@ -101,4 +101,9 @@ skor paneli, ipucu kutusu.
 ortho kutular, texel snap, polygon offset, PCF, cascade seçimi view-depth'ten), TRS
 seviyesinde **animasyon crossfade** (`animation.play {clip, fade}` — iki klip harmanı, slerp).
 
-**M1–M14 tamamlandı** (M6 Vulkan hariç, ertelendi).
+**M15 ✅** AI gözlem + gameplay: `observe.view` (sahne kamerasını bozmadan serbest açı render),
+`observe.entities` (her varlık için ekran koordinatı + görünürlük + mesafe), global **state
+store** (`state.set/get/list`) + behavior `if`/`setState`/`addState`/`timer`/`setUI` aksiyonları
++ `${key}` metin enterpolasyonu, `timer.after`, `checkpoint.save/restore` (sahne + state anlık görüntüsü).
+
+**M1–M15 tamamlandı** (M6 Vulkan hariç, ertelendi).

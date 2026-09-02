@@ -59,6 +59,11 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `audio.stop` | `{handle}` | — |
 | `ui.add` / `ui.set` | `{name, kind?, anchor?, pos?, size?, color?, fill_color?, text?, text_size?, text_color?, value?, visible?, order?}` | `{name}` |
 | `ui.remove` | `{name}` | — |
+| `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
+| `observe.entities` | — | `{entities:[{name,position,distance,in_view,screen}]}` |
+| `state.set` / `state.get` / `state.list` / `state.clear` | `{key?, value?}` | — / `{value}` / tüm state / — |
+| `timer.after` | `{seconds, event}` | — tek seferlik → event |
+| `checkpoint.save` / `checkpoint.restore` | `{name?}` | — (sahne + state anlık görüntüsü) |
 | `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |
@@ -86,7 +91,10 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 ```
 Aksiyonlar: `log`, `setVelocity {velocity}`, `impulse {impulse}`, `spin {axis,speed_deg}`,
 `moveToward {target,speed}`, `setMaterial/setColor {color,metallic,roughness}`,
-`spawn {…entity params…, relative?}`, `destroy {target?}`, `emit {event}`.
+`spawn {…entity params…, relative?}`, `destroy {target?}`, `emit {event}`,
+`setState {key,value}`, `addState {key,value}`, `timer {after,event}`,
+`setUI {target, text?, value?, visible?}` (`text` içinde `${key}` state ile değişir).
+Kurallara `"if": {"key":"phase","eq":"combat"}` (eq/ne/gt/gte/lt/lte/exists) koşulu eklenebilir.
 Kurallar `world.step` ve `physics.play` sırasında her adımda değerlendirilir.
 
 ### Materyal (`<material>` alanları)
