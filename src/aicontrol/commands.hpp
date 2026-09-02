@@ -1,5 +1,6 @@
 #pragma once
 #include "behavior/behavior_system.hpp"
+#include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
 #include "render/renderer.hpp"
@@ -15,6 +16,7 @@ struct CommandContext {
     Framebuffer& offscreen;
     PhysicsSystem& physics;
     BehaviorSystem& behaviors;
+    NavGrid& nav;
     std::string scene_path;   // currently loaded scene file (for hot-reload + default save)
     bool quit = false;
     bool sim_running = false;  // when true, main loop steps physics every frame

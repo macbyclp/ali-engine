@@ -131,6 +131,15 @@ void Scene::load_json(const json& j) {
         if (je.contains("behavior")) {
             registry.emplace<Behavior>(e, Behavior{je["behavior"], false});
         }
+        if (je.contains("character")) {
+            const auto& jc = je["character"];
+            CharacterController cc;
+            cc.radius = jc.value("radius", cc.radius);
+            cc.height = jc.value("height", cc.height);
+            cc.move_speed = jc.value("move_speed", cc.move_speed);
+            cc.jump_speed = jc.value("jump_speed", cc.jump_speed);
+            registry.emplace<CharacterController>(e, cc);
+        }
         if (je.contains("animation")) {
             const auto& ja = je["animation"];
             AnimationPlayer ap;
@@ -221,6 +230,10 @@ json Scene::to_json() const {
         if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
             je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},
                                {"loop", ap->loop}, {"playing", ap->playing}};
+        }
+        if (auto* cc = registry.try_get<CharacterController>(e)) {
+            je["character"] = {{"radius", cc->radius}, {"height", cc->height},
+                               {"move_speed", cc->move_speed}, {"jump_speed", cc->jump_speed}};
         }
         if (auto* c = registry.try_get<CameraComp>(e)) {
             je["camera"] = {

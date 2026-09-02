@@ -233,6 +233,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 update_animations(scene, dt);
                 ctx.behaviors.tick(scene, ctx.physics, dt);
                 ctx.physics.step(scene, dt, substeps);
+                ctx.physics.step_characters(scene, dt);
             }
             return ok(id, {{"stepped", steps}, {"dt", dt}});
         }
@@ -267,6 +268,76 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (mr && mr->skinned)
                 for (auto& [k, v] : mr->skinned->clips) clips.push_back(k);
             return ok(id, {{"clips", clips}});
+        }
+        if (method == "character.create") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) e = scene.create(p.at("name").get<std::string>());
+            apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
+            auto& cc = scene.registry.get_or_emplace<CharacterController>(e);
+            cc.radius = p.value("radius", cc.radius);
+            cc.height = p.value("height", cc.height);
+            cc.move_speed = p.value("move_speed", cc.move_speed);
+            cc.jump_speed = p.value("jump_speed", cc.jump_speed);
+            if (!scene.registry.all_of<MeshRenderer>(e) && p.value("mesh", true)) {
+                MeshRenderer mr;
+                mr.primitive = "sphere";
+                mr.base_color = v3(p.value("base_color", json()), glm::vec3(0.9f, 0.7f, 0.3f));
+                scene.registry.emplace<MeshRenderer>(e, mr);
+                scene.resolve_gpu_meshes();
+            }
+            ctx.physics.sync_characters(scene);
+            return ok(id);
+        }
+        if (method == "character.move") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such character");
+            auto* cc = scene.registry.try_get<CharacterController>(e);
+            if (!cc) return fail(id, "not a character");
+            glm::vec3 dir = v3(p.value("direction", json()), glm::vec3(0));
+            if (glm::length(dir) > 1e-4f) dir = glm::normalize(dir);
+            cc->desired_velocity = dir * p.value("speed", cc->move_speed);
+            cc->path.clear();
+            return ok(id);
+        }
+        if (method == "character.jump") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such character");
+            if (auto* cc = scene.registry.try_get<CharacterController>(e)) cc->want_jump = true;
+            return ok(id);
+        }
+        if (method == "character.moveTo") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such character");
+            auto* cc = scene.registry.try_get<CharacterController>(e);
+            auto* t = scene.registry.try_get<Transform>(e);
+            if (!cc || !t) return fail(id, "not a character");
+            glm::vec3 tgt = v3(p.at("target"), t->position);
+            if (ctx.nav.ready()) {
+                cc->path = ctx.nav.path(t->position, tgt);
+                cc->path_idx = 0;
+                if (cc->path.empty()) return fail(id, "no path");
+            } else {
+                cc->path = {tgt};
+                cc->path_idx = 0;
+            }
+            return ok(id, {{"waypoints", cc->path.size()}});
+        }
+        if (method == "nav.bake") {
+            glm::vec3 mn = v3(p.value("min", json()), glm::vec3(-25, 0, -25));
+            glm::vec3 mx = v3(p.value("max", json()), glm::vec3(25, 0, 25));
+            float cell = p.value("cell", 1.0f);
+            ctx.physics.sync(scene);
+            ctx.nav.bake(scene, mn, mx, cell);
+            return ok(id);
+        }
+        if (method == "nav.path") {
+            if (!ctx.nav.ready()) return fail(id, "nav not baked");
+            glm::vec3 a = v3(p.at("from"), glm::vec3(0));
+            glm::vec3 b = v3(p.at("to"), glm::vec3(0));
+            auto pts = ctx.nav.path(a, b);
+            json arr = json::array();
+            for (auto& pt : pts) arr.push_back(v3(pt));
+            return ok(id, {{"waypoints", arr}});
         }
         if (method == "behavior.set") {
             auto e = scene.find(p.at("name").get<std::string>());

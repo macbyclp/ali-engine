@@ -47,6 +47,12 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `animation.play` | `{name, clip?, speed?, loop?, restart?}` | — |
 | `animation.pause` / `animation.stop` | `{name}` | — |
 | `animation.list` | `{name}` | `{clips:[...]}` |
+| `character.create` | `{name, position?, radius?, height?, move_speed?, jump_speed?, base_color?}` | — |
+| `character.move` | `{name, direction:[x,y,z], speed?}` | — |
+| `character.jump` | `{name}` | — |
+| `character.moveTo` | `{name, target:[x,y,z]}` | `{waypoints}` — navmesh yolu |
+| `nav.bake` | `{min?, max?, cell?}` | — statik gövdelerden grid |
+| `nav.path` | `{from, to}` | `{waypoints:[...]}` |
 | `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |

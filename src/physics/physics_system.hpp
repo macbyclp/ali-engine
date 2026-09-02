@@ -16,6 +16,10 @@ public:
     void impulse(const std::string& name, Scene& scene, const glm::vec3& j);
     void set_velocity(const std::string& name, Scene& scene, const glm::vec3& v);
 
+    // Character controllers: create bodies, integrate movement, write transforms.
+    void sync_characters(Scene& scene);
+    void step_characters(Scene& scene, float dt);
+
     // Contact pairs since last drain, resolved to entities (invalid if body gone).
     std::vector<std::pair<entt::entity, entt::entity>> drain_contacts();
 

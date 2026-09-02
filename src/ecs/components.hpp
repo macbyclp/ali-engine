@@ -114,6 +114,22 @@ struct Behavior {
     bool started = false;
 };
 
+// Kinematic capsule character (Jolt CharacterVirtual). desired_velocity is the
+// horizontal intent set each frame; gravity + ground handling is automatic.
+struct CharacterController {
+    float radius = 0.4f;
+    float height = 1.8f;
+    float move_speed = 5.0f;
+    float jump_speed = 6.0f;
+    glm::vec3 desired_velocity{0.0f};
+    bool want_jump = false;
+    bool on_ground = false;
+    std::vector<glm::vec3> path;
+    size_t path_idx = 0;
+    uint32_t handle = 0;
+    bool registered = false;
+};
+
 // The active view. One entity in the scene carries this.
 struct CameraComp {
     glm::vec3 position{0, 2, 6};
