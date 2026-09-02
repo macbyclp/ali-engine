@@ -1,6 +1,7 @@
 #include "aicontrol/commands.hpp"
 #include "core/log.hpp"
 #include <filesystem>
+#include <fstream>
 #include <glm/glm.hpp>
 
 using nlohmann::json;
@@ -90,6 +91,9 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             scene.registry.emplace<MeshRenderer>(e, mr);
             scene.resolve_gpu_meshes();
 
+            if (p.contains("parent"))
+                scene.registry.emplace<Hierarchy>(e, Hierarchy{p["parent"].get<std::string>()});
+
             if (p.contains("body")) {
                 const json& jb = p["body"];
                 RigidBody rb;
@@ -102,6 +106,37 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 ctx.physics.sync(scene);
             }
             return ok(id, {{"name", name}});
+        }
+        if (method == "entity.setParent") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            std::string par = p.value("parent", std::string());
+            if (par.empty()) scene.registry.remove<Hierarchy>(e);
+            else scene.registry.emplace_or_replace<Hierarchy>(e, Hierarchy{par});
+            return ok(id);
+        }
+        if (method == "prefab.save") {
+            std::string root = p.at("root").get<std::string>();
+            std::string path = p.at("path").get<std::string>();
+            if (scene.find(root) == entt::null) return fail(id, "no such entity: " + root);
+            json pf = scene.export_subtree(root);
+            if (fs::path(path).has_parent_path())
+                fs::create_directories(fs::path(path).parent_path());
+            std::ofstream f(path);
+            if (!f) return fail(id, "cannot write: " + path);
+            f << pf.dump(2) << "\n";
+            return ok(id, {{"path", path}, {"entities", pf["entities"].size()}});
+        }
+        if (method == "prefab.instantiate") {
+            std::string path = p.at("path").get<std::string>();
+            std::string name = p.at("name").get<std::string>();
+            std::ifstream f(path);
+            if (!f) return fail(id, "prefab not found: " + path);
+            json pf; f >> pf;
+            glm::vec3 at = v3(p.value("position", json()), glm::vec3(0));
+            auto created = scene.instantiate(pf, name, at, p.contains("position"));
+            ctx.physics.sync(scene);
+            return ok(id, {{"created", created}});
         }
         if (method == "entity.setBody") {
             auto e = scene.find(p.at("name").get<std::string>());

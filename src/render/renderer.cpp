@@ -1,5 +1,6 @@
 #include "render/renderer.hpp"
 #include "core/log.hpp"
+#include "scene/transform_system.hpp"
 #include <glm/gtc/matrix_access.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -298,6 +299,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     auto t0 = std::chrono::high_resolution_clock::now();
     ensure_hdr(w, h);
     stats_ = {};
+    update_world_transforms(scene);
 
     CameraComp& cam = scene.camera();
     float aspect = h ? float(w) / float(h) : 1.0f;
@@ -312,13 +314,15 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
     std::vector<Item> items;
     glm::vec3 sc(0); int nn = 0;
-    for (auto [e, t, mr] : scene.registry.view<Transform, MeshRenderer>().each()) {
+    for (auto [e, wt, mr] : scene.registry.view<WorldTransform, MeshRenderer>().each()) {
         if (!mr.gpu) continue;
-        glm::mat4 model = t.matrix();
-        float ms = std::max({std::abs(t.scale.x), std::abs(t.scale.y), std::abs(t.scale.z)});
+        const glm::mat4& model = wt.matrix;
+        glm::vec3 s{glm::length(glm::vec3(model[0])), glm::length(glm::vec3(model[1])),
+                    glm::length(glm::vec3(model[2]))};
+        float ms = std::max({s.x, s.y, s.z});
         glm::vec3 wc = glm::vec3(model * glm::vec4(mr.gpu->bounds_center(), 1.0f));
         items.push_back({&mr, mr.gpu.get(), model, wc, mr.gpu->bounds_radius() * ms});
-        sc += t.position; ++nn;
+        sc += wt.position; ++nn;
     }
     stats_.entities = (int)items.size();
     glm::vec3 center = nn ? sc / float(nn) : glm::vec3(0);

@@ -27,6 +27,14 @@ public:
     bool load_file(const std::string& path);
     bool save_file(const std::string& path) const;
 
+    // Prefab: a JSON fragment holding an entity and its descendants.
+    nlohmann::json export_subtree(const std::string& root) const;
+    // Instantiate `prefab` with names prefixed by `new_root`; the subtree root
+    // becomes exactly `new_root`. Returns the created names. `at` offsets the root.
+    std::vector<std::string> instantiate(const nlohmann::json& prefab,
+                                         const std::string& new_root,
+                                         const glm::vec3& at, bool use_at);
+
     // Resolve MeshRenderer::gpu for every entity (call after load / primitive change).
     void resolve_gpu_meshes();
 

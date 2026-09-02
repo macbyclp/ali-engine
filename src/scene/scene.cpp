@@ -2,8 +2,10 @@
 #include "assets/gltf.hpp"
 #include "assets/texture.hpp"
 #include "core/log.hpp"
+#include <algorithm>
 #include <fstream>
 #include <unordered_map>
+#include <vector>
 
 using nlohmann::json;
 
@@ -73,6 +75,9 @@ void Scene::load_json(const json& j) {
         }
         registry.emplace<Transform>(e, t);
 
+        if (je.contains("parent") && je["parent"].is_string())
+            registry.emplace<Hierarchy>(e, Hierarchy{je["parent"].get<std::string>()});
+
         if (je.contains("mesh")) {
             const auto& jm = je["mesh"];
             MeshRenderer mr;
@@ -130,6 +135,8 @@ json Scene::to_json() const {
     for (auto [e, n] : registry.view<Name>().each()) {
         json je;
         je["name"] = n.value;
+        if (auto* hh = registry.try_get<Hierarchy>(e); hh && !hh->parent_name.empty())
+            je["parent"] = hh->parent_name;
         if (auto* t = registry.try_get<Transform>(e)) {
             je["transform"] = {
                 {"position", v3(t->position)},
@@ -216,6 +223,74 @@ static std::shared_ptr<Mesh>& cache_slot(const std::string& key) {
 static std::unordered_map<std::string, GltfMaterial>& gltf_mat_cache() {
     static std::unordered_map<std::string, GltfMaterial> m;
     return m;
+}
+
+nlohmann::json Scene::export_subtree(const std::string& root) const {
+    json full = to_json();
+    // collect root + descendants by walking parent links
+    std::vector<std::string> keep{root};
+    bool grew = true;
+    while (grew) {
+        grew = false;
+        for (const auto& je : full["entities"]) {
+            std::string nm = je.value("name", std::string());
+            std::string par = je.value("parent", std::string());
+            if (par.empty()) continue;
+            bool in = std::find(keep.begin(), keep.end(), nm) != keep.end();
+            bool parIn = std::find(keep.begin(), keep.end(), par) != keep.end();
+            if (parIn && !in) { keep.push_back(nm); grew = true; }
+        }
+    }
+    json out;
+    out["entities"] = json::array();
+    for (const auto& je : full["entities"])
+        if (std::find(keep.begin(), keep.end(), je.value("name", std::string())) != keep.end())
+            out["entities"].push_back(je);
+    return out;
+}
+
+std::vector<std::string> Scene::instantiate(const json& prefab, const std::string& new_root,
+                                            const glm::vec3& at, bool use_at) {
+    // find the prefab's root (an entity whose parent is absent or outside the set)
+    std::vector<std::string> src_names;
+    for (const auto& je : prefab.value("entities", json::array()))
+        src_names.push_back(je.value("name", std::string()));
+
+    std::string src_root;
+    for (const auto& je : prefab.value("entities", json::array())) {
+        std::string par = je.value("parent", std::string());
+        if (par.empty() || std::find(src_names.begin(), src_names.end(), par) == src_names.end()) {
+            src_root = je.value("name", std::string());
+            break;
+        }
+    }
+
+    std::unordered_map<std::string, std::string> remap;
+    for (const auto& s : src_names)
+        remap[s] = (s == src_root) ? new_root : new_root + "/" + s;
+
+    json inst;
+    inst["entities"] = json::array();
+    for (json je : prefab.value("entities", json::array())) {
+        std::string nm = je.value("name", std::string());
+        je["name"] = remap.count(nm) ? remap[nm] : nm;
+        if (je.contains("parent")) {
+            std::string par = je["parent"].get<std::string>();
+            if (remap.count(par)) je["parent"] = remap[par];
+        }
+        if (use_at && nm == src_root)
+            je["transform"]["position"] = json::array({at.x, at.y, at.z});
+        inst["entities"].push_back(je);
+    }
+
+    // append into the live scene without clearing it
+    json merged = to_json();
+    for (auto& je : inst["entities"]) merged["entities"].push_back(je);
+    load_json(merged);
+
+    std::vector<std::string> created;
+    for (auto& [k, v] : remap) created.push_back(v);
+    return created;
 }
 
 void Scene::resolve_gpu_meshes() {

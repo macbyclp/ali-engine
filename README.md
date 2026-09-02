@@ -34,6 +34,11 @@ glTF PBR materyal import (baseColor/normal/metallic-roughness/emissive/occlusion
 gömülü .glb dokular dahil). Prosedürel test dokuları (`builtin:checker/grid/bumps/...`).
 Materyale göre gruplama → instancing korunur.
 
+**M8 ✅** Sahne grafı & prefab: `Hierarchy` component + parent/child, `WorldTransform`
+(update_world_transforms, keyfi derinlik), `entity.setParent`, `entity.spawn {parent}`.
+Prefab = JSON alt-ağaç: `prefab.save`, `prefab.instantiate` (isim önekleme + kök konumlama).
+glTF çok-node hiyerarşi: node transformları vertex'lere baked, çok-parçalı modeller korunur.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -50,5 +55,5 @@ python tools/drive.py                                           # örnek AI sür
 
 ## Yol haritası
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
-M6 Vulkan RHI ⏸️ · **M7 materyal & doku ✅** · M8 sahne grafı & prefab · M9 animasyon ·
+M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · **M8 sahne grafı & prefab ✅** · M9 animasyon ·
 M10 ışık & gölge · M11 karakter & navigasyon · M12 ses & partikül & post
