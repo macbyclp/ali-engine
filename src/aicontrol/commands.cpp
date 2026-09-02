@@ -284,6 +284,36 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
             return ok(id);
         }
+        if (method == "ui.add" || method == "ui.set") {
+            std::string name = p.at("name").get<std::string>();
+            auto e = scene.find(name);
+            if (e == entt::null) e = scene.create(name);
+            auto& ui = scene.registry.get_or_emplace<UIElement>(e);
+            ui.kind = p.value("kind", ui.kind);
+            ui.anchor = p.value("anchor", ui.anchor);
+            if (p.contains("pos") && p["pos"].size() == 2)
+                ui.pos = {p["pos"][0].get<float>(), p["pos"][1].get<float>()};
+            if (p.contains("size") && p["size"].size() == 2)
+                ui.size = {p["size"][0].get<float>(), p["size"][1].get<float>()};
+            if (p.contains("color") && p["color"].size() == 4)
+                ui.color = {p["color"][0], p["color"][1], p["color"][2], p["color"][3]};
+            if (p.contains("fill_color") && p["fill_color"].size() == 4)
+                ui.fill_color = {p["fill_color"][0], p["fill_color"][1], p["fill_color"][2], p["fill_color"][3]};
+            if (p.contains("text_color") && p["text_color"].size() == 4)
+                ui.text_color = {p["text_color"][0], p["text_color"][1], p["text_color"][2], p["text_color"][3]};
+            ui.text = p.value("text", ui.text);
+            ui.text_size = p.value("text_size", ui.text_size);
+            ui.value = p.value("value", ui.value);
+            ui.visible = p.value("visible", ui.visible);
+            ui.order = p.value("order", ui.order);
+            return ok(id, {{"name", name}});
+        }
+        if (method == "ui.remove") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such element");
+            scene.registry.remove<UIElement>(e);
+            return ok(id);
+        }
         if (method == "particles.emit") {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) e = scene.create(p.at("name").get<std::string>());

@@ -87,6 +87,13 @@ python tools/drive.py                                           # örnek AI sür
 ## Yol haritası
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
 M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
-M10 ışık & gölge ✅ · M11 karakter & navigasyon ✅ · **M12 ses & partikül & post ✅**
+M10 ışık ✅ · M11 karakter & navigasyon ✅ · M12 ses & partikül & post ✅ · **M13 UI & metin ✅**
 
-**M1–M12 tamamlandı** (M6 Vulkan hariç, ertelendi).
+**Godot paritesi sürüyor:** M14 gölge derinliği (CSM + spot gölge) + animasyon state machine ·
+M15 AI gözlem + gameplay katmanı · sonra terrain, SSAO, Recast navmesh
+
+**M13 ✅** UI & metin: `Font` (stb_truetype atlas), `UIElement` component
+(panel/text/bar, 9 anchor), ekran-uzayı UI pass, `ui.add/set/remove`. HUD, can barı,
+skor paneli, ipucu kutusu.
+
+**M1–M13 tamamlandı** (M6 Vulkan hariç, ertelendi).
