@@ -23,6 +23,11 @@ box/sphere), ECS↔Jolt senkron + transform geri-yazma, `world.step`, `physics.p
 `start`/`tick`/`collision`/`event`, aksiyonlar (impulse, setVelocity, spin, moveToward,
 setMaterial, spawn, destroy, emit), Jolt contact event'leri, `behavior.set/get`, `event.emit`.
 
+**M5 ✅** Ölçek: frustum culling (job-parallel, mesh bounding sphere), aynı mesh'i tek
+`glDrawElementsInstanced` çağrısında toplayan GPU instancing, paylaşımlı mesh önbelleği,
+thread pool (`JobSystem`), `observe.stats` (entities/visible/culled/draw_calls/cpu_ms).
+2000+ obje → 2 draw call.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -38,4 +43,4 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek · M6 Vulkan RHI
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek ✅ · M6 Vulkan RHI

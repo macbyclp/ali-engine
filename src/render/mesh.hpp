@@ -25,6 +25,10 @@ public:
 
     void draw() const;
     int index_count() const { return count_; }
+    unsigned vbo() const { return vbo_; }
+    unsigned ebo() const { return ebo_; }
+    glm::vec3 bounds_center() const { return bc_; }
+    float bounds_radius() const { return br_; }
 
     static std::shared_ptr<Mesh> cube();
     static std::shared_ptr<Mesh> sphere(int segments = 32);
@@ -33,6 +37,8 @@ public:
 private:
     unsigned vao_ = 0, vbo_ = 0, ebo_ = 0;
     int count_ = 0;
+    glm::vec3 bc_{0};
+    float br_ = 1.0f;
     void release();
 };
 

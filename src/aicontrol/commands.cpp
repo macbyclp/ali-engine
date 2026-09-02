@@ -197,6 +197,16 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     r["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, r);
         }
+        if (method == "observe.stats") {
+            ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),
+                                ctx.offscreen.height());
+            Framebuffer::bind_default(ctx.offscreen.width(), ctx.offscreen.height());
+            const auto& s = ctx.renderer.stats();
+            return ok(id, {{"entities", s.entities}, {"visible", s.visible},
+                           {"culled", s.culled}, {"draw_calls", s.draw_calls},
+                           {"instances", s.instances}, {"groups", s.groups},
+                           {"cpu_ms", s.cpu_ms}});
+        }
         if (method == "observe.screenshot") {
             int w = p.value("width", ctx.offscreen.width());
             int h = p.value("height", ctx.offscreen.height());
