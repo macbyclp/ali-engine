@@ -88,10 +88,10 @@ python tools/drive.py                                           # örnek AI sür
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
 M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
 M10 ışık ✅ · M11 karakter & navigasyon ✅ · M12 ses & partikül & post ✅ · M13 UI & metin ✅ ·
-M14 CSM + animasyon blend ✅ · **M15 AI gözlem + gameplay ✅**
+M14 CSM + animasyon blend ✅ · M15 AI gözlem + gameplay ✅ · **M16 GUI editör ✅**
 
-**Kalan cila:** spot ışık gölgesi, animasyon state machine, terrain, SSAO, Recast navmesh,
-prosedürel mesh/CSG, ses bus'ları.
+**Sıradaki:** M17 eklenti/modül sistemi + doklar. **Cila:** spot gölge, animasyon state
+machine, terrain, SSAO, Recast navmesh, prosedürel mesh/CSG, ses bus'ları.
 
 **M13 ✅** UI & metin: `Font` (stb_truetype atlas), `UIElement` component
 (panel/text/bar, 9 anchor), ekran-uzayı UI pass, `ui.add/set/remove`. HUD, can barı,
@@ -106,4 +106,8 @@ seviyesinde **animasyon crossfade** (`animation.play {clip, fade}` — iki klip 
 store** (`state.set/get/list`) + behavior `if`/`setState`/`addState`/`timer`/`setUI` aksiyonları
 + `${key}` metin enterpolasyonu, `timer.after`, `checkpoint.save/restore` (sahne + state anlık görüntüsü).
 
-**M1–M15 tamamlandı** (M6 Vulkan hariç, ertelendi).
+**M16 ✅** GUI editör: `--editor` ile gömülü Dear ImGui — dockspace, hierarchy, inspector
+(transform/mesh/ışık/rigidbody), ImGuizmo transform gizmo'ları, orbit kamera viewport,
+JSON komut konsolu (AI ile aynı `dispatch`), File→Save. Sahne JSON gerçeğin kaynağı.
+
+**M1–M16 tamamlandı** (M6 Vulkan hariç, ertelendi).
