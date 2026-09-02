@@ -135,10 +135,9 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 fs::create_directories(fs::path(path).parent_path());
             }
 
-            ctx.offscreen.bind();
-            ctx.renderer.render(scene, w, h);
+            ctx.renderer.render(scene, ctx.offscreen.id(), w, h);
             bool saved = ctx.offscreen.save_png(path);
-            Framebuffer::unbind();
+            Framebuffer::bind_default(w, h);
             if (!saved) return fail(id, "screenshot write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h}});
         }

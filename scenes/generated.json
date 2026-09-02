@@ -45,7 +45,7 @@
           -1.0,
           -0.30000001192092896
         ],
-        "intensity": 1.2999999523162842
+        "intensity": 3.200000047683716
       },
       "name": "sun",
       "transform": {
@@ -73,9 +73,9 @@
           0.6000000238418579,
           0.8999999761581421
         ],
-        "metallic": 0.0,
+        "metallic": 0.8999999761581421,
         "primitive": "sphere",
-        "roughness": 0.800000011920929
+        "roughness": 0.25
       },
       "name": "ball",
       "transform": {

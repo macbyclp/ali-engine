@@ -7,13 +7,13 @@ görüntü olarak geri alır.
 Native, C++20, OpenGL 4.5. Mimari ve yol haritası: [ARCHITECTURE.md](ARCHITECTURE.md).
 AI kontrol protokolü: [docs/AI-PROTOCOL.md](docs/AI-PROTOCOL.md).
 
-## Durum — M1 (AI-sürülebilir çekirdek)
-- JSON sahne formatı + dosya hot-reload
-- stdin/stdout JSON satır protokolü: `entity.spawn/destroy/setTransform/setMaterial`,
-  `light.set`, `camera.set/get`, `scene.load/save/reset/state`
-- `observe.screenshot` → PNG (headless FBO, AI'ın gözü)
-- Prosedürel primitifler (cube/sphere/plane) + glTF mesh yükleme (geometri)
-- Tek yönlü ışık, Lambert + ambient, gamma. **PBR M2'de.**
+## Durum
+**M1 ✅** AI-sürülebilir çekirdek: JSON sahne + hot-reload, stdin/stdout komut protokolü
+(`entity.*`, `light.set`, `camera.*`, `scene.*`), `observe.screenshot` → PNG,
+prosedürel primitifler + glTF geometri.
+
+**M2 ✅** Render kalitesi: metallic-roughness PBR (Cook-Torrance), prosedürel-sky
+IBL yaklaşımı, yönlü gölge haritası (2048, PCF 3×3), HDR RGBA16F + ACES tonemap.
 
 ## Build (Windows)
 ```
@@ -30,4 +30,4 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge · M3 Jolt fizik · M4 davranış sistemi · M5 ölçek · M6 Vulkan RHI
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik · M4 davranış sistemi · M5 ölçek · M6 Vulkan RHI

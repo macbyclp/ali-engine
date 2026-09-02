@@ -47,7 +47,8 @@ def main() -> int:
          base_color=[0.9, 0.4, 0.3])
     call("entity.spawn", name="ball", primitive="sphere", position=[2, 1, -1],
          base_color=[0.3, 0.6, 0.9])
-    call("light.set", name="sun", direction=[-0.5, -1, -0.3], intensity=1.3)
+    call("light.set", name="sun", direction=[-0.5, -1, -0.3], intensity=3.2)
+    call("entity.setMaterial", name="ball", metallic=0.9, roughness=0.25)
     call("camera.set", position=[6, 4, 8], target=[0, 1, 0], fov_deg=55)
     shot = call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
     print("screenshot:", shot)
