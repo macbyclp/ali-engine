@@ -4,8 +4,8 @@
 Usage:
     python tools/drive.py [path-to-engine.exe]
 
-Spawns a large grid to exercise frustum culling + GPU instancing, screenshots,
-prints render stats. A stand-in for whatever AI agent will drive the engine.
+Builds a material/texture showcase, screenshots it. If a glTF path is given as a
+second arg, loads that too. A stand-in for whatever AI agent will drive the engine.
 """
 import json
 import subprocess
@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
+GLTF = sys.argv[2] if len(sys.argv) > 2 else None
 
 
 def main() -> int:
@@ -22,7 +23,7 @@ def main() -> int:
         return 1
 
     proc = subprocess.Popen(
-        [str(ENGINE), "--headless", "--width", "960", "--height", "540"],
+        [str(ENGINE), "--headless", "--width", "1100", "--height", "620"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, cwd=ROOT,
     )
 
@@ -40,30 +41,30 @@ def main() -> int:
 
     call("ping")
     call("scene.reset")
-    call("entity.spawn", name="floor", primitive="plane", scale=[60, 1, 60],
-         base_color=[0.2, 0.22, 0.25])
 
-    # a 45x45 grid of cubes (2025 entities) -> one instanced draw call after culling
-    n, spacing = 45, 2.2
-    for i in range(n):
-        for j in range(n):
-            x = (i - n / 2) * spacing
-            z = (j - n / 2) * spacing
-            hue = 0.3 + 0.5 * ((i + j) % 5) / 5
-            call("entity.spawn", name=f"c_{i}_{j}", primitive="cube",
-                 position=[x, 0.5, z], rotation=[0, (i * j) % 90, 0],
-                 base_color=[0.8, hue, 0.35])
+    call("entity.spawn", name="floor", primitive="plane", scale=[14, 1, 14],
+         base_color_map="builtin:checker", uv_scale=[8, 8], roughness=0.85)
 
-    call("light.set", name="sun", direction=[-0.4, -1, -0.3], intensity=3.0)
-    call("camera.set", position=[6, 5, 14], target=[0, 0, 0], fov_deg=60)
+    call("entity.spawn", name="rough", primitive="sphere", position=[-3, 1.2, 0],
+         scale=[1.2, 1.2, 1.2], base_color=[0.85, 0.4, 0.35], roughness=0.9, metallic=0.0)
+    call("entity.spawn", name="metal", primitive="sphere", position=[0, 1.2, 0],
+         scale=[1.2, 1.2, 1.2], base_color=[0.95, 0.95, 0.98], roughness=0.15, metallic=1.0)
+    call("entity.spawn", name="bumped", primitive="sphere", position=[3, 1.2, 0],
+         scale=[1.2, 1.2, 1.2], base_color=[0.5, 0.6, 0.85], roughness=0.4,
+         normal_map="builtin:bumps")
+    call("entity.spawn", name="glow", primitive="cube", position=[0, 0.5, 3.5],
+         base_color=[0.1, 0.1, 0.1], emissive=[0.9, 0.4, 1.2])
 
-    call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
-    print("stats (camera low, most culled):", call("observe.stats")["result"])
+    if GLTF:
+        call("entity.spawn", name="model", primitive="gltf", gltf_path=GLTF,
+             position=[0, 0, -3.5])
 
-    call("camera.set", position=[0, 90, 0.1], target=[0, 0, 0], fov_deg=70)
-    call("observe.screenshot", path=str(ROOT / "screenshots" / "drive_top.png"))
-    print("stats (top-down, most visible):", call("observe.stats")["result"])
+    call("light.set", name="sun", direction=[-0.5, -1, -0.35], intensity=3.2)
+    call("camera.set", position=[0, 4, 9], target=[0, 1, 0], fov_deg=55)
 
+    shot = call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
+    print("screenshot:", shot["result"])
+    print("stats:", call("observe.stats")["result"])
     call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)

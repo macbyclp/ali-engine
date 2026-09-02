@@ -1,4 +1,5 @@
 #pragma once
+#include "assets/texture.hpp"
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -29,14 +30,26 @@ struct Transform {
     }
 };
 
-// Which primitive/asset to draw. For M1: procedural primitives or a loaded glTF.
+// Which primitive/asset to draw + its PBR material.
+// Texture keys: a file path, or "builtin:<checker|grid|uv|normal|bumps>".
 struct MeshRenderer {
     std::string primitive = "cube";      // cube | sphere | plane | gltf
     std::string gltf_path;               // used when primitive == "gltf"
+
     glm::vec3 base_color{0.8f};
     float metallic = 0.0f;
     float roughness = 0.8f;
-    std::shared_ptr<Mesh> gpu;           // resolved at load, not serialized
+    glm::vec3 emissive{0.0f};
+    glm::vec2 uv_scale{1.0f};
+
+    std::string base_color_map;
+    std::string normal_map;
+    std::string metallic_roughness_map;
+    std::string emissive_map;
+    std::string ao_map;
+
+    std::shared_ptr<Mesh> gpu;           // resolved, not serialized
+    std::shared_ptr<Texture> t_base, t_normal, t_mr, t_emissive, t_ao;
 };
 
 struct DirectionalLight {

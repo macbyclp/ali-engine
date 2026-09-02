@@ -4,7 +4,33 @@
 
 namespace eng {
 
-Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
+// Per-vertex tangents from UV gradients (Lengyel's method). Overwrites tangents.
+static void compute_tangents(std::vector<Vertex>& v, const std::vector<uint32_t>& idx) {
+    std::vector<glm::vec3> tan(v.size(), glm::vec3(0)), bit(v.size(), glm::vec3(0));
+    for (size_t i = 0; i + 2 < idx.size(); i += 3) {
+        uint32_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
+        glm::vec3 e1 = v[b].pos - v[a].pos, e2 = v[c].pos - v[a].pos;
+        glm::vec2 d1 = v[b].uv - v[a].uv, d2 = v[c].uv - v[a].uv;
+        float f = d1.x * d2.y - d2.x * d1.y;
+        if (std::abs(f) < 1e-8f) continue;
+        f = 1.0f / f;
+        glm::vec3 t = f * (d2.y * e1 - d1.y * e2);
+        glm::vec3 bt = f * (d1.x * e2 - d2.x * e1);
+        for (uint32_t k : {a, b, c}) { tan[k] += t; bit[k] += bt; }
+    }
+    for (size_t i = 0; i < v.size(); ++i) {
+        glm::vec3 n = v[i].normal;
+        glm::vec3 t = tan[i];
+        if (glm::length(t) < 1e-8f) t = glm::abs(n.y) < 0.99f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+        t = glm::normalize(t - n * glm::dot(n, t));
+        float w = (glm::dot(glm::cross(n, t), bit[i]) < 0.0f) ? -1.0f : 1.0f;
+        v[i].tangent = glm::vec4(t, w);
+    }
+}
+
+Mesh::Mesh(const std::vector<Vertex>& verts_in, const std::vector<uint32_t>& indices) {
+    std::vector<Vertex> verts = verts_in;
+    compute_tangents(verts, indices);
     count_ = static_cast<int>(indices.size());
 
     glm::vec3 lo(1e9f), hi(-1e9f);

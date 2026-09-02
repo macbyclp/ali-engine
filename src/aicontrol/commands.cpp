@@ -22,6 +22,20 @@ static json fail(const json& id, const std::string& msg) {
     return {{"id", id}, {"ok", false}, {"error", msg}};
 }
 
+static void apply_material(MeshRenderer& mr, const json& p) {
+    mr.base_color = v3(p.value("base_color", json()), mr.base_color);
+    mr.metallic = p.value("metallic", mr.metallic);
+    mr.roughness = p.value("roughness", mr.roughness);
+    mr.emissive = v3(p.value("emissive", json()), mr.emissive);
+    if (p.contains("uv_scale") && p["uv_scale"].is_array() && p["uv_scale"].size() == 2)
+        mr.uv_scale = {p["uv_scale"][0].get<float>(), p["uv_scale"][1].get<float>()};
+    mr.base_color_map = p.value("base_color_map", mr.base_color_map);
+    mr.normal_map = p.value("normal_map", mr.normal_map);
+    mr.metallic_roughness_map = p.value("metallic_roughness_map", mr.metallic_roughness_map);
+    mr.emissive_map = p.value("emissive_map", mr.emissive_map);
+    mr.ao_map = p.value("ao_map", mr.ao_map);
+}
+
 static void apply_transform(Transform& t, const json& p) {
     if (p.contains("position")) t.position = v3(p["position"], t.position);
     if (p.contains("rotation")) t.euler_deg = v3(p["rotation"], t.euler_deg);
@@ -72,9 +86,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             MeshRenderer mr;
             mr.primitive = p.value("primitive", std::string("cube"));
             mr.gltf_path = p.value("gltf_path", std::string());
-            mr.base_color = v3(p.value("base_color", json()), mr.base_color);
-            mr.metallic = p.value("metallic", mr.metallic);
-            mr.roughness = p.value("roughness", mr.roughness);
+            apply_material(mr, p);
             scene.registry.emplace<MeshRenderer>(e, mr);
             scene.resolve_gpu_meshes();
 
@@ -120,9 +132,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (e == entt::null) return fail(id, "no such entity");
             auto* mr = scene.registry.try_get<MeshRenderer>(e);
             if (!mr) return fail(id, "entity has no mesh");
-            mr->base_color = v3(p.value("base_color", json()), mr->base_color);
-            mr->metallic = p.value("metallic", mr->metallic);
-            mr->roughness = p.value("roughness", mr->roughness);
+            apply_material(*mr, p);
+            scene.resolve_gpu_meshes();
             return ok(id);
         }
         if (method == "light.set") {

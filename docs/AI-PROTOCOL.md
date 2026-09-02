@@ -36,10 +36,10 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `scene.reset` | — | — |
 | `scene.state` | — | tüm sahne (JSON) |
 | `entity.list` | — | `{names:[...]}` |
-| `entity.spawn` | `{name?, primitive?, gltf_path?, position?, rotation?, scale?, base_color?, metallic?, roughness?, body?}` | `{name}` |
+| `entity.spawn` | `{name?, primitive?, gltf_path?, position?, rotation?, scale?, <material>, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
 | `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
-| `entity.setMaterial` | `{name, base_color?, metallic?, roughness?}` | — |
+| `entity.setMaterial` | `{name, <material>}` | — |
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
 | `light.set` | `{name?, direction?, color?, intensity?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
@@ -70,6 +70,12 @@ Aksiyonlar: `log`, `setVelocity {velocity}`, `impulse {impulse}`, `spin {axis,sp
 `moveToward {target,speed}`, `setMaterial/setColor {color,metallic,roughness}`,
 `spawn {…entity params…, relative?}`, `destroy {target?}`, `emit {event}`.
 Kurallar `world.step` ve `physics.play` sırasında her adımda değerlendirilir.
+
+### Materyal (`<material>` alanları)
+`{ base_color:[r,g,b], metallic, roughness, emissive:[r,g,b], uv_scale:[u,v],
+base_color_map, normal_map, metallic_roughness_map, emissive_map, ao_map }`.
+Doku anahtarı = dosya yolu **veya** `builtin:<checker|grid|uv|normal|bumps>`.
+glTF yüklenince dosyanın materyali otomatik gelir; verdiğin alanlar üzerine yazar.
 
 ### Fizik (`body`)
 `entity.spawn`/`entity.setBody` içinde: `{type: "static"|"dynamic"|"kinematic",
