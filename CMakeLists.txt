@@ -93,13 +93,21 @@ target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imguizmo_SOURCE_DIR} ${imnodes_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
+# Everything under src/ except the entry point builds the reusable core library;
+# downstream apps (e.g. tridifizik) link ali_engine_core via FetchContent.
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+list(REMOVE_ITEM ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 
-add_executable(engine ${ENGINE_SOURCES})
-target_include_directories(engine PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
-target_link_libraries(engine PRIVATE
+add_library(ali_engine_core STATIC ${ENGINE_SOURCES})
+target_include_directories(ali_engine_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
+target_link_libraries(ali_engine_core PUBLIC
     glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glfw glad_gl46 Jolt imgui)
+target_compile_definitions(ali_engine_core PUBLIC GLFW_INCLUDE_NONE)
+add_library(ali_engine::core ALIAS ali_engine_core)
 
+add_executable(engine src/main.cpp)
+target_link_libraries(engine PRIVATE ali_engine_core)
 target_compile_definitions(engine PRIVATE
-    ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}"
-    GLFW_INCLUDE_NONE)
+    ENGINE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
