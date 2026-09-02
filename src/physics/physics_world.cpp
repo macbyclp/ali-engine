@@ -16,6 +16,8 @@
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Body/Body.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -116,6 +118,9 @@ struct PhysicsWorld::Impl {
 
     JPH::BodyInterface& bi() { return system.GetBodyInterface(); }
     static JPH::BodyID id(uint32_t h) { return JPH::BodyID(h); }
+
+    std::unordered_map<uint32_t, JPH::Ref<JPH::CharacterVirtual>> chars;
+    uint32_t next_char = 1;
 };
 
 static bool g_jolt_inited = false;
@@ -198,6 +203,49 @@ void PhysicsWorld::step(float dt) {
 
 std::vector<std::pair<uint32_t, uint32_t>> PhysicsWorld::drain_contacts() {
     return p_->contacts.drain();
+}
+
+uint32_t PhysicsWorld::create_character(const glm::vec3& pos, float radius, float height) {
+    float cyl = std::max(0.05f, 0.5f * height - radius);
+    JPH::Ref<JPH::CharacterVirtualSettings> s = new JPH::CharacterVirtualSettings();
+    s->mShape = new JPH::CapsuleShape(cyl, radius);
+    s->mMaxSlopeAngle = JPH::DegreesToRadians(46.0f);
+    s->mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -radius);
+    auto ch = new JPH::CharacterVirtual(s, to_j(pos + glm::vec3(0, 0.5f * height, 0)),
+                                        JPH::Quat::sIdentity(), 0, &p_->system);
+    uint32_t h = p_->next_char++;
+    p_->chars[h] = ch;
+    return h;
+}
+
+void PhysicsWorld::destroy_character(uint32_t h) { p_->chars.erase(h); }
+
+void PhysicsWorld::character_set_velocity(uint32_t h, const glm::vec3& v) {
+    auto it = p_->chars.find(h);
+    if (it != p_->chars.end()) it->second->SetLinearVelocity(to_j(v));
+}
+
+void PhysicsWorld::character_update(uint32_t h, float dt) {
+    auto it = p_->chars.find(h);
+    if (it == p_->chars.end() || dt <= 0.0f) return;
+    JPH::CharacterVirtual* ch = it->second;
+    JPH::CharacterVirtual::ExtendedUpdateSettings us;
+    ch->ExtendedUpdate(dt, p_->system.GetGravity(), us,
+                       p_->system.GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+                       p_->system.GetDefaultLayerFilter(Layers::MOVING),
+                       {}, {}, p_->temp);
+}
+
+glm::vec3 PhysicsWorld::character_position(uint32_t h) const {
+    auto it = p_->chars.find(h);
+    if (it == p_->chars.end()) return glm::vec3(0);
+    return to_g(JPH::Vec3(it->second->GetPosition()));
+}
+
+bool PhysicsWorld::character_on_ground(uint32_t h) const {
+    auto it = p_->chars.find(h);
+    return it != p_->chars.end() &&
+           it->second->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround;
 }
 
 RayHit PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& dir, float max_d) const {

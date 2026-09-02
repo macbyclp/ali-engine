@@ -4,6 +4,7 @@
 #include "behavior/behavior_system.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
+#include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
 #include "render/renderer.hpp"
@@ -43,9 +44,10 @@ int main(int argc, char** argv) {
     eng::PhysicsSystem physics;
     physics.sync(scene);
     eng::BehaviorSystem behaviors;
+    eng::NavGrid nav;
 
     eng::ControlChannel channel;
-    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, scene_path};
+    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, scene_path};
     ctx.sim_running = start_playing;
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
@@ -96,6 +98,7 @@ int main(int argc, char** argv) {
         if (ctx.sim_running) {
             behaviors.tick(scene, physics, dt);
             physics.step(scene, dt);
+            physics.step_characters(scene, dt);
         } else {
             physics.sync(scene);
         }

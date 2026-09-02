@@ -56,6 +56,14 @@ public:
     // Contact pairs (handle,handle) detected during the most recent step(s).
     std::vector<std::pair<uint32_t, uint32_t>> drain_contacts();
 
+    // --- kinematic character controllers (Jolt CharacterVirtual) ---
+    uint32_t create_character(const glm::vec3& pos, float radius, float height);
+    void destroy_character(uint32_t ch);
+    void character_set_velocity(uint32_t ch, const glm::vec3& v);
+    void character_update(uint32_t ch, float dt);
+    glm::vec3 character_position(uint32_t ch) const;
+    bool character_on_ground(uint32_t ch) const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> p_;

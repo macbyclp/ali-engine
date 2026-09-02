@@ -1,6 +1,8 @@
 #include "physics/physics_system.hpp"
 #include "scene/transform_system.hpp"
 #include <glm/gtc/quaternion.hpp>
+#include <cmath>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -113,6 +115,58 @@ void PhysicsSystem::set_velocity(const std::string& name, Scene& scene, const gl
     if (e == entt::null) return;
     if (auto* rb = scene.registry.try_get<RigidBody>(e); rb && rb->registered)
         world_.set_linear_velocity(rb->handle, v);
+}
+
+void PhysicsSystem::sync_characters(Scene& scene) {
+    for (auto [e, t, cc] : scene.registry.view<Transform, CharacterController>().each()) {
+        if (cc.registered) continue;
+        cc.handle = world_.create_character(t.position, cc.radius, cc.height);
+        cc.registered = true;
+    }
+}
+
+void PhysicsSystem::step_characters(Scene& scene, float dt) {
+    sync_characters(scene);
+    glm::vec3 g = world_.gravity();
+    for (auto [e, t, cc] : scene.registry.view<Transform, CharacterController>().each()) {
+        if (!cc.registered) continue;
+
+        glm::vec3 want = cc.desired_velocity;
+        // follow a path if one is set
+        if (!cc.path.empty() && cc.path_idx < cc.path.size()) {
+            glm::vec3 tgt = cc.path[cc.path_idx];
+            glm::vec3 d = tgt - t.position; d.y = 0.0f;
+            float dist = glm::length(d);
+            if (dist < 0.35f) {
+                if (++cc.path_idx >= cc.path.size()) { cc.path.clear(); cc.path_idx = 0; }
+            } else {
+                want = (d / dist) * cc.move_speed;
+            }
+        }
+
+        cc.on_ground = world_.character_on_ground(cc.handle);
+        glm::vec3 v = want;
+        // vertical: keep falling unless grounded; jump on request
+        static thread_local std::unordered_map<uint32_t, float> vy;
+        float& y = vy[cc.handle];
+        if (cc.on_ground) y = cc.want_jump ? cc.jump_speed : 0.0f;
+        else y += g.y * dt;
+        cc.want_jump = false;
+        v.y = y;
+
+        world_.character_set_velocity(cc.handle, v);
+        world_.character_update(cc.handle, dt);
+
+        glm::vec3 center = world_.character_position(cc.handle);
+        t.position = center - glm::vec3(0, 0.5f * cc.height, 0);
+
+        // face travel direction
+        glm::vec3 flat(want.x, 0, want.z);
+        if (glm::length(flat) > 0.1f)
+            t.euler_deg.y = glm::degrees(std::atan2(flat.x, flat.z));
+
+        cc.desired_velocity = glm::vec3(0);
+    }
 }
 
 std::vector<std::pair<entt::entity, entt::entity>> PhysicsSystem::drain_contacts() {
