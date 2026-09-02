@@ -131,6 +131,22 @@ void Scene::load_json(const json& j) {
         if (je.contains("behavior")) {
             registry.emplace<Behavior>(e, Behavior{je["behavior"], false});
         }
+        if (je.contains("particles")) {
+            const auto& jp = je["particles"];
+            ParticleEmitter em;
+            em.rate = jp.value("rate", em.rate);
+            em.lifetime = jp.value("lifetime", em.lifetime);
+            em.velocity = v3(jp.value("velocity", json()), em.velocity);
+            em.velocity_spread = v3(jp.value("velocity_spread", json()), em.velocity_spread);
+            em.gravity = v3(jp.value("gravity", json()), em.gravity);
+            em.start_size = jp.value("start_size", em.start_size);
+            em.end_size = jp.value("end_size", em.end_size);
+            if (jp.contains("start_color") && jp["start_color"].size() == 4)
+                em.start_color = {jp["start_color"][0], jp["start_color"][1], jp["start_color"][2], jp["start_color"][3]};
+            if (jp.contains("end_color") && jp["end_color"].size() == 4)
+                em.end_color = {jp["end_color"][0], jp["end_color"][1], jp["end_color"][2], jp["end_color"][3]};
+            registry.emplace<ParticleEmitter>(e, em);
+        }
         if (je.contains("character")) {
             const auto& jc = je["character"];
             CharacterController cc;
@@ -234,6 +250,15 @@ json Scene::to_json() const {
         if (auto* cc = registry.try_get<CharacterController>(e)) {
             je["character"] = {{"radius", cc->radius}, {"height", cc->height},
                                {"move_speed", cc->move_speed}, {"jump_speed", cc->jump_speed}};
+        }
+        if (auto* em = registry.try_get<ParticleEmitter>(e)) {
+            je["particles"] = {
+                {"rate", em->rate}, {"lifetime", em->lifetime},
+                {"velocity", v3(em->velocity)}, {"velocity_spread", v3(em->velocity_spread)},
+                {"gravity", v3(em->gravity)}, {"start_size", em->start_size}, {"end_size", em->end_size},
+                {"start_color", json::array({em->start_color.x, em->start_color.y, em->start_color.z, em->start_color.w})},
+                {"end_color", json::array({em->end_color.x, em->end_color.y, em->end_color.z, em->end_color.w})},
+            };
         }
         if (auto* c = registry.try_get<CameraComp>(e)) {
             je["camera"] = {

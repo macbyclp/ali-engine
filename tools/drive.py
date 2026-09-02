@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ali-engine driver — M11 character controller + grid navigation demo."""
+"""ali-engine driver — M12 demo: particles + bloom (+ audio if a wav is given)."""
 import json
 import subprocess
 import sys
@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
+WAV = sys.argv[2] if len(sys.argv) > 2 else None
 
 
 def main() -> int:
@@ -32,42 +33,32 @@ def main() -> int:
 
     call("ping")
     call("scene.reset")
-    call("entity.spawn", name="floor", primitive="plane", scale=[20, 1, 20],
-         base_color_map="builtin:checker", uv_scale=[10, 10], roughness=0.9,
-         body={"type": "static"})
+    call("entity.spawn", name="floor", primitive="plane", scale=[16, 1, 16],
+         base_color=[0.15, 0.16, 0.2], roughness=0.7)
 
-    # a wall with a gap -> the character must route around it
-    for i in range(-4, 5):
-        if i in (0, 1):
-            continue
-        call("entity.spawn", name=f"wall{i}", primitive="cube",
-             position=[i * 1.2, 0.75, 0], scale=[1.2, 1.5, 1.2],
-             base_color=[0.5, 0.45, 0.4], body={"type": "static"})
-    for i in range(-3, 4):
-        call("entity.spawn", name=f"wall2_{i}", primitive="cube",
-             position=[i * 1.2, 0.75, 6], scale=[1.2, 1.5, 1.2],
-             base_color=[0.5, 0.45, 0.4], body={"type": "static"})
+    # glowing emissive orbs (drive the bloom) with fire fountains
+    for i, x in enumerate([-4, 0, 4]):
+        col = [[1.4, 0.5, 0.2], [0.3, 1.4, 0.6], [0.4, 0.6, 1.5]][i]
+        call("entity.spawn", name=f"orb{i}", primitive="sphere",
+             position=[x, 1.4, 0], scale=[0.5, 0.5, 0.5],
+             base_color=[0.02, 0.02, 0.02], emissive=col)
+        call("particles.emit", name=f"fx{i}", position=[x, 0.5, 0],
+             rate=90, lifetime=1.6, velocity=[0, 4.5, 0],
+             velocity_spread=[1.0, 0.6, 1.0], gravity=[0, -2.5, 0],
+             start_color=col + [1.0], end_color=[col[0] * 0.3, col[1] * 0.3, col[2] * 0.3, 0.0],
+             start_size=0.28, end_size=0.02)
 
-    call("character.create", name="hero", position=[0, 0, -6], radius=0.4, height=1.8,
-         move_speed=4.5, base_color=[0.95, 0.55, 0.2])
+    call("light.set", name="sun", direction=[-0.4, -1, -0.3], intensity=0.7)
+    call("camera.set", position=[0, 4, 12], target=[0, 2, 0], fov_deg=55)
 
-    call("light.set", name="sun", direction=[-0.4, -1, -0.3], intensity=3.0)
-    call("camera.set", position=[10, 12, -12], target=[0, 0, 2], fov_deg=55)
-
-    print("nav.bake:", call("nav.bake", min=[-14, 0, -14], max=[14, 0, 14], cell=0.8))
-    r = call("nav.path", **{"from": [0, 0, -6], "to": [0, 0, 10]})
-    print("path waypoints:", len(r["result"]["waypoints"]))
-
-    print("moveTo:", call("character.moveTo", name="hero", target=[0, 0, 10]))
+    if WAV:
+        print("audio.play:", call("audio.play", file=WAV, volume=0.8, loop=True,
+                                  spatial=True, position=[0, 1, 0]))
 
     call("world.step", dt=1 / 60, steps=90)
     call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
-    call("world.step", dt=1 / 60, steps=120)
-    call("observe.screenshot", path=str(ROOT / "screenshots" / "drive_b.png"))
-
-    for ent in call("scene.state")["result"]["entities"]:
-        if ent["name"] == "hero":
-            print("hero pos:", [round(x, 2) for x in ent["transform"]["position"]])
+    print("stats:", call("observe.stats")["result"])
+    call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)
     return 0

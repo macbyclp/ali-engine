@@ -253,12 +253,79 @@ void main() {
 }
 )";
 
+static const char* kBrightFrag = R"(
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform float uThreshold;
+out vec4 FragColor;
+void main() {
+    vec3 c = texture(uSrc, vUV).rgb;
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float k = max(l - uThreshold, 0.0) / max(l, 1e-4);
+    FragColor = vec4(c * k, 1.0);
+}
+)";
+static const char* kBlurFrag = R"(
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uDir;          // (texel, 0) or (0, texel)
+out vec4 FragColor;
+void main() {
+    float w[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+    vec3 c = texture(uSrc, vUV).rgb * w[0];
+    for (int i = 1; i < 5; ++i) {
+        c += texture(uSrc, vUV + uDir * float(i)).rgb * w[i];
+        c += texture(uSrc, vUV - uDir * float(i)).rgb * w[i];
+    }
+    FragColor = vec4(c, 1.0);
+}
+)";
 static const char* kTonemapFrag = R"(
 in vec2 vUV;
 uniform sampler2D uHDR;
+uniform sampler2D uBloom;
+uniform float uBloomStrength;
+uniform float uExposure;
+uniform float uVignette;
 out vec4 FragColor;
 vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);}
-void main(){ FragColor = vec4(pow(aces(texture(uHDR,vUV).rgb), vec3(1.0/2.2)), 1.0); }
+void main(){
+    vec3 hdr = texture(uHDR, vUV).rgb * uExposure;
+    hdr += texture(uBloom, vUV).rgb * uBloomStrength;
+    vec3 col = pow(aces(hdr), vec3(1.0/2.2));
+    vec2 d = vUV - 0.5;
+    col *= 1.0 - uVignette * dot(d, d) * 2.0;
+    FragColor = vec4(col, 1.0);
+}
+)";
+static const char* kParticleVert = R"(
+layout(location=0) in vec3 iPos;
+layout(location=1) in vec4 iColor;
+layout(location=2) in float iSize;
+uniform mat4 uViewProj;
+uniform vec3 uCamRight;
+uniform vec3 uCamUp;
+out vec4 vColor;
+out vec2 vUV;
+const vec2 quad[4] = vec2[](vec2(-1,-1), vec2(1,-1), vec2(-1,1), vec2(1,1));
+void main() {
+    vec2 q = quad[gl_VertexID];
+    vUV = q;
+    vColor = iColor;
+    vec3 wp = iPos + (uCamRight * q.x + uCamUp * q.y) * iSize;
+    gl_Position = uViewProj * vec4(wp, 1.0);
+}
+)";
+static const char* kParticleFrag = R"(
+in vec4 vColor;
+in vec2 vUV;
+out vec4 FragColor;
+void main() {
+    float d = dot(vUV, vUV);
+    if (d > 1.0) discard;
+    float a = vColor.a * (1.0 - d);
+    FragColor = vec4(vColor.rgb * a, a);
+}
 )";
 
 // ---------------- frustum ----------------
@@ -309,9 +376,16 @@ Renderer::Renderer(int w, int h)
       sky_(kFsVert, (std::string(kSkyGLSL) + kSkyFrag).c_str()),
       shadow_(kShadowVert, kShadowFrag),
       tonemap_(kFsVert, kTonemapFrag),
+      bright_(kFsVert, kBrightFrag),
+      blur_(kFsVert, kBlurFrag),
+      particle_(kParticleVert, kParticleFrag),
       shadow_map_(4096, 4096, ColorFormat::None, true) {
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
+    bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
+    bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
     glCreateVertexArrays(1, &empty_vao_);
+    glCreateVertexArrays(1, &particle_vao_);
+    glCreateBuffers(1, &particle_vbo_);
 
     glCreateVertexArrays(1, &draw_vao_);
     glCreateBuffers(1, &instance_vbo_);
@@ -345,17 +419,66 @@ Renderer::Renderer(int w, int h)
     inst_vec4(9, offsetof(InstanceData, metal_uv));
     inst_vec4(10, offsetof(InstanceData, emissive));
     glVertexArrayBindingDivisor(draw_vao_, 1, 1);
+
+    // particle instance VAO: vec3 pos, vec4 color, float size ; divisor 1
+    glEnableVertexArrayAttrib(particle_vao_, 0);
+    glVertexArrayAttribFormat(particle_vao_, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(particle_vao_, 0, 0);
+    glEnableVertexArrayAttrib(particle_vao_, 1);
+    glVertexArrayAttribFormat(particle_vao_, 1, 4, GL_FLOAT, GL_FALSE, sizeof(float) * 3);
+    glVertexArrayAttribBinding(particle_vao_, 1, 0);
+    glEnableVertexArrayAttrib(particle_vao_, 2);
+    glVertexArrayAttribFormat(particle_vao_, 2, 1, GL_FLOAT, GL_FALSE, sizeof(float) * 7);
+    glVertexArrayAttribBinding(particle_vao_, 2, 0);
+    glVertexArrayBindingDivisor(particle_vao_, 0, 1);
 }
 
 Renderer::~Renderer() {
     if (instance_vbo_) glDeleteBuffers(1, &instance_vbo_);
+    if (particle_vbo_) glDeleteBuffers(1, &particle_vbo_);
     if (draw_vao_) glDeleteVertexArrays(1, &draw_vao_);
+    if (particle_vao_) glDeleteVertexArrays(1, &particle_vao_);
     if (empty_vao_) glDeleteVertexArrays(1, &empty_vao_);
 }
 
 void Renderer::ensure_hdr(int w, int h) {
-    if (hdr_->width() != w || hdr_->height() != h) hdr_->resize(w, h);
+    if (hdr_->width() != w || hdr_->height() != h) {
+        hdr_->resize(w, h);
+        bloom_a_->resize(std::max(1, w / 2), std::max(1, h / 2));
+        bloom_b_->resize(std::max(1, w / 2), std::max(1, h / 2));
+    }
 }
+
+void Renderer::bloom_pass(int w, int h) {
+    int bw = std::max(1, w / 2), bh = std::max(1, h / 2);
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(empty_vao_);
+
+    bloom_a_->bind();
+    glClear(GL_COLOR_BUFFER_BIT);
+    bright_.use();
+    glBindTextureUnit(0, hdr_->color_texture());
+    bright_.set("uSrc", 0);
+    bright_.set("uThreshold", 1.0f);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    blur_.use();
+    blur_.set("uSrc", 0);
+    bool horizontal = true;
+    for (int i = 0; i < 8; ++i) {
+        Framebuffer* dst = horizontal ? bloom_b_.get() : bloom_a_.get();
+        Framebuffer* src = horizontal ? bloom_a_.get() : bloom_b_.get();
+        dst->bind();
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindTextureUnit(0, src->color_texture());
+        blur_.set("uDir", horizontal ? glm::vec2(1.0f / bw, 0.0f) : glm::vec2(0.0f, 1.0f / bh));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        horizontal = !horizontal;
+    }
+    // final blurred result ends up in bloom_a_ (after even count of swaps)
+    glEnable(GL_DEPTH_TEST);
+}
+
 void Renderer::ensure_instances(size_t bytes) {
     if (bytes <= instance_capacity_) return;
     instance_capacity_ = std::max(bytes, instance_capacity_ * 2 + 4096);
@@ -570,14 +693,58 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     stats_.entities += (int)skinned.size();
     stats_.visible += (int)skinned.size();
 
-    // pass 3: tonemap
+    // particles (additive, into HDR)
+    hdr_->bind();
+    {
+        glm::vec3 cr = glm::normalize(glm::vec3(glm::row(view, 0)));
+        glm::vec3 cu = glm::normalize(glm::vec3(glm::row(view, 1)));
+        struct PInst { glm::vec3 pos; glm::vec4 col; float size; };
+        std::vector<PInst> insts;
+        for (auto [e, em] : scene.registry.view<ParticleEmitter>().each())
+            for (const auto& p : em.particles) {
+                float t = 1.0f - glm::clamp(p.life / p.max_life, 0.0f, 1.0f);
+                insts.push_back({p.pos, glm::mix(em.start_color, em.end_color, t),
+                                 glm::mix(em.start_size, em.end_size, t)});
+            }
+        if (!insts.empty()) {
+            size_t bytes = insts.size() * sizeof(PInst);
+            if (bytes > particle_capacity_) {
+                particle_capacity_ = bytes * 2;
+                glNamedBufferData(particle_vbo_, particle_capacity_, nullptr, GL_DYNAMIC_DRAW);
+            }
+            glNamedBufferSubData(particle_vbo_, 0, bytes, insts.data());
+            glVertexArrayVertexBuffer(particle_vao_, 0, particle_vbo_, 0, sizeof(PInst));
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE);
+            glDepthMask(GL_FALSE);
+            particle_.use();
+            particle_.set("uViewProj", view_proj);
+            particle_.set("uCamRight", cr);
+            particle_.set("uCamUp", cu);
+            glBindVertexArray(particle_vao_);
+            glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)insts.size());
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            stats_.draw_calls++;
+        }
+    }
+
+    // bloom
+    bloom_pass(w, h);
+
+    // pass 3: tonemap + bloom composite
     glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
     glViewport(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT);
     tonemap_.use();
     glBindTextureUnit(0, hdr_->color_texture());
+    glBindTextureUnit(1, bloom_a_->color_texture());
     tonemap_.set("uHDR", 0);
+    tonemap_.set("uBloom", 1);
+    tonemap_.set("uBloomStrength", 0.04f);
+    tonemap_.set("uExposure", 1.0f);
+    tonemap_.set("uVignette", 0.25f);
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);

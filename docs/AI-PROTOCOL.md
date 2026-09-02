@@ -53,6 +53,10 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `character.moveTo` | `{name, target:[x,y,z]}` | `{waypoints}` — navmesh yolu |
 | `nav.bake` | `{min?, max?, cell?}` | — statik gövdelerden grid |
 | `nav.path` | `{from, to}` | `{waypoints:[...]}` |
+| `particles.emit` | `{name, position?, rate?, lifetime?, velocity?, velocity_spread?, gravity?, start_color?, end_color?, start_size?, end_size?}` | — |
+| `particles.stop` | `{name}` | — |
+| `audio.play` | `{file, volume?, loop?, spatial?, position?}` | `{handle}` |
+| `audio.stop` | `{handle}` | — |
 | `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |

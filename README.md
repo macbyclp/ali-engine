@@ -54,6 +54,12 @@ move & slide, yerçekimi, zemin algılama, eğim limiti, zıplama), `character.c
 jump/moveTo`. Grid-tabanlı navmesh (`NavGrid`): statik gövdelerden bake, 8-yön A*,
 `nav.bake` / `nav.path`. `character.moveTo` yol takibi + yön dönüşü.
 
+**M12 ✅** Ses & partikül & post: **bloom** (bright-pass + ayrık gaussian + kompozit),
+**exposure + vignette**. **CPU partikül sistemi** (`ParticleEmitter`: rate/lifetime/
+velocity spread/gravity/renk-boyut lerp), additive camera-facing billboard'lar,
+`particles.emit/stop`. **Uzamsal ses** (miniaudio): `audio.play/stop`, kamera-takipli
+dinleyici, 3B konumlandırma.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -71,4 +77,6 @@ python tools/drive.py                                           # örnek AI sür
 ## Yol haritası
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
 M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
-M10 ışık & gölge ✅ · **M11 karakter & navigasyon ✅** · M12 ses & partikül & post
+M10 ışık & gölge ✅ · M11 karakter & navigasyon ✅ · **M12 ses & partikül & post ✅**
+
+**M1–M12 tamamlandı** (M6 Vulkan hariç, ertelendi).
