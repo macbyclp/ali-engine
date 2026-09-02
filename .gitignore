@@ -8,3 +8,4 @@ compile_commands.json
 .vs/
 .DS_Store
 prefabs/
+imgui.ini
