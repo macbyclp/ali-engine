@@ -136,8 +136,10 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             std::string path = p.at("path").get<std::string>();
             if (scene.find(root) == entt::null) return fail(id, "no such entity: " + root);
             json pf = scene.export_subtree(root);
-            if (fs::path(path).has_parent_path())
-                fs::create_directories(fs::path(path).parent_path());
+            if (fs::path(path).has_parent_path()) {
+                std::error_code ec;
+                fs::create_directories(fs::path(path).parent_path(), ec);
+            }
             std::ofstream f(path);
             if (!f) return fail(id, "cannot write: " + path);
             f << pf.dump(2) << "\n";
@@ -336,11 +338,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ctx.offscreen.resize(vw, vh);
             std::string path = p.value("path", std::string());
             if (path.empty()) {
-                fs::path dir = fs::path(ENGINE_ASSET_DIR) / "screenshots";
+                fs::path dir = fs::current_path() / "screenshots";
                 fs::create_directories(dir);
                 path = (dir / "view.png").string();
-            } else {
-                if (fs::path(path).has_parent_path()) fs::create_directories(fs::path(path).parent_path());
+            } else if (fs::path(path).has_parent_path()) {
+                std::error_code ec;
+                fs::create_directories(fs::path(path).parent_path(), ec);
             }
             ctx.renderer.render(scene, ctx.offscreen.id(), vw, vh);
             bool saved_ok = ctx.offscreen.save_png(path);
@@ -554,11 +557,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
 
             std::string path = p.value("path", std::string());
             if (path.empty()) {
-                fs::path dir = fs::path(ENGINE_ASSET_DIR) / "screenshots";
+                fs::path dir = fs::current_path() / "screenshots";
                 fs::create_directories(dir);
                 path = (dir / "latest.png").string();
-            } else {
-                fs::create_directories(fs::path(path).parent_path());
+            } else if (fs::path(path).has_parent_path()) {
+                std::error_code ec;
+                fs::create_directories(fs::path(path).parent_path(), ec);
             }
 
             ctx.renderer.render(scene, ctx.offscreen.id(), w, h);
