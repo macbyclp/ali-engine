@@ -9,6 +9,8 @@ same data model, no separate export step.
 
 `C++20` · `OpenGL 4.5` · `Windows`
 
+[**Download v0.1.0 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
+
 ![showcase](media/showcase.gif)
 
 <sub>Every object, light, material, particle and behaviour in that clip was created by JSON commands and rendered headless — no C++ was written for the scene.</sub>
@@ -84,7 +86,10 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 ## Quick start
 
-**Prerequisites:** CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
+**Prebuilt:** grab [`ali-engine-v0.1.0-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
+(≈2 MB, VC++ runtime bundled) and jump to *Run* below.
+
+**Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
 (for the GL loader codegen).
 
 ```bash
