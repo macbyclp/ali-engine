@@ -19,24 +19,43 @@ static glm::vec3 v3(const json& j, const glm::vec3& fallback) {
     return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>()};
 }
 
+Scene::Scene() {
+    registry.on_construct<Name>().connect<&Scene::on_name_set>(*this);
+    registry.on_update<Name>().connect<&Scene::on_name_set>(*this);
+    registry.on_destroy<Name>().connect<&Scene::on_name_removed>(*this);
+}
+Scene::~Scene() {
+    // tear entities down now, while index_ (touched by the on_destroy handler) is
+    // still alive; the registry member is destroyed after this body returns.
+    registry.clear();
+}
+
+void Scene::on_name_set(entt::registry& r, entt::entity e) {
+    index_[r.get<Name>(e).value] = e;
+}
+void Scene::on_name_removed(entt::registry& r, entt::entity e) {
+    auto it = index_.find(r.get<Name>(e).value);
+    if (it != index_.end() && it->second == e) index_.erase(it);
+}
+
 std::string Scene::unique_name(const std::string& base) const {
-    if (find(base) == entt::null) return base;
+    if (index_.find(base) == index_.end()) return base;
     for (int i = 1;; ++i) {
         std::string cand = base + "." + std::to_string(i);
-        if (find(cand) == entt::null) return cand;
+        if (index_.find(cand) == index_.end()) return cand;
     }
 }
 
 entt::entity Scene::create(const std::string& name) {
     auto e = registry.create();
-    registry.emplace<Name>(e, unique_name(name.empty() ? "entity" : name));
     registry.emplace<Transform>(e);
+    registry.emplace<Name>(e, unique_name(name.empty() ? "entity" : name));
     return e;
 }
 
 entt::entity Scene::find(const std::string& name) const {
-    for (auto [e, n] : registry.view<Name>().each())
-        if (n.value == name) return e;
+    auto it = index_.find(name);
+    if (it != index_.end() && registry.valid(it->second)) return it->second;
     return entt::null;
 }
 
@@ -59,11 +78,13 @@ CameraComp& Scene::camera() {
     return registry.emplace<CameraComp>(e);
 }
 
-void Scene::clear() { registry.clear(); }
+void Scene::clear() {
+    registry.clear();
+    index_.clear();
+}
 
-void Scene::load_json(const json& j) {
-    clear();
-    for (const auto& je : j.value("entities", json::array())) {
+entt::entity Scene::load_entity(const json& je) {
+    {
         auto e = registry.create();
         registry.emplace<Name>(e, unique_name(je.value("name", std::string("entity"))));
 
@@ -190,7 +211,13 @@ void Scene::load_json(const json& j) {
             c.fov_deg = jc.value("fov_deg", c.fov_deg);
             registry.emplace<CameraComp>(e, c);
         }
+        return e;
     }
+}
+
+void Scene::load_json(const json& j) {
+    clear();
+    for (const auto& je : j.value("entities", json::array())) load_entity(je);
     resolve_gpu_meshes();
 }
 
@@ -375,8 +402,9 @@ std::vector<std::string> Scene::instantiate(const json& prefab, const std::strin
     for (const auto& s : src_names)
         remap[s] = (s == src_root) ? new_root : new_root + "/" + s;
 
-    json inst;
-    inst["entities"] = json::array();
+    // append the prefab's entities directly into the live registry -- existing
+    // entities, physics bodies and runtime state are untouched.
+    std::vector<std::string> created;
     for (json je : prefab.value("entities", json::array())) {
         std::string nm = je.value("name", std::string());
         je["name"] = remap.count(nm) ? remap[nm] : nm;
@@ -386,16 +414,10 @@ std::vector<std::string> Scene::instantiate(const json& prefab, const std::strin
         }
         if (use_at && nm == src_root)
             je["transform"]["position"] = json::array({at.x, at.y, at.z});
-        inst["entities"].push_back(je);
+        entt::entity e = load_entity(je);
+        created.push_back(registry.get<Name>(e).value);
     }
-
-    // append into the live scene without clearing it
-    json merged = to_json();
-    for (auto& je : inst["entities"]) merged["entities"].push_back(je);
-    load_json(merged);
-
-    std::vector<std::string> created;
-    for (auto& [k, v] : remap) created.push_back(v);
+    resolve_gpu_meshes();
     return created;
 }
 

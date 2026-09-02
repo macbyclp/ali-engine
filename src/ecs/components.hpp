@@ -131,6 +131,7 @@ struct CharacterController {
     glm::vec3 desired_velocity{0.0f};
     bool want_jump = false;
     bool on_ground = false;
+    float vertical_vel = 0.0f;   // runtime: integrated gravity / jump speed
     std::vector<glm::vec3> path;
     size_t path_idx = 0;
     uint32_t handle = 0;

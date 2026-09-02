@@ -118,10 +118,18 @@ void PhysicsSystem::set_velocity(const std::string& name, Scene& scene, const gl
 }
 
 void PhysicsSystem::sync_characters(Scene& scene) {
+    std::unordered_set<uint32_t> alive;
     for (auto [e, t, cc] : scene.registry.view<Transform, CharacterController>().each()) {
-        if (cc.registered) continue;
-        cc.handle = world_.create_character(t.position, cc.radius, cc.height);
-        cc.registered = true;
+        if (!cc.registered) {
+            cc.handle = world_.create_character(t.position, cc.radius, cc.height);
+            cc.registered = true;
+            character_handles_.insert(cc.handle);
+        }
+        alive.insert(cc.handle);
+    }
+    for (auto it = character_handles_.begin(); it != character_handles_.end();) {
+        if (!alive.count(*it)) { world_.destroy_character(*it); it = character_handles_.erase(it); }
+        else ++it;
     }
 }
 
@@ -147,12 +155,10 @@ void PhysicsSystem::step_characters(Scene& scene, float dt) {
         cc.on_ground = world_.character_on_ground(cc.handle);
         glm::vec3 v = want;
         // vertical: keep falling unless grounded; jump on request
-        static thread_local std::unordered_map<uint32_t, float> vy;
-        float& y = vy[cc.handle];
-        if (cc.on_ground) y = cc.want_jump ? cc.jump_speed : 0.0f;
-        else y += g.y * dt;
+        if (cc.on_ground) cc.vertical_vel = cc.want_jump ? cc.jump_speed : 0.0f;
+        else cc.vertical_vel += g.y * dt;
         cc.want_jump = false;
-        v.y = y;
+        v.y = cc.vertical_vel;
 
         world_.character_set_velocity(cc.handle, v);
         world_.character_update(cc.handle, dt);

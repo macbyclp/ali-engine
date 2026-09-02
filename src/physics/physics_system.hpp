@@ -2,6 +2,7 @@
 #include "physics/physics_world.hpp"
 #include "scene/scene.hpp"
 #include <unordered_map>
+#include <unordered_set>
 
 namespace eng {
 
@@ -31,6 +32,7 @@ public:
 private:
     PhysicsWorld world_;
     std::unordered_map<uint32_t, entt::entity> handle_to_entity_;
+    std::unordered_set<uint32_t> character_handles_;
 };
 
 } // namespace eng
