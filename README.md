@@ -7,6 +7,16 @@ görüntü olarak geri alır.
 Native, C++20, OpenGL 4.5. Mimari ve yol haritası: [ARCHITECTURE.md](ARCHITECTURE.md).
 AI kontrol protokolü: [docs/AI-PROTOCOL.md](docs/AI-PROTOCOL.md).
 
+![showcase](media/showcase.gif)
+
+*Yukarıdaki sahne tamamen `tools/gen_media.py` içindeki JSON komutlarıyla kuruldu ve
+headless render edildi — PBR, iskeletsel animasyon, Jolt fizik, davranış scriptleri,
+point ışıklar, partiküller, bloom.*
+
+| Malzeme (metallic-roughness + normal map) | Point + spot ışıklar |
+| --- | --- |
+| ![materials](media/materials.png) | ![lighting](media/lighting.png) |
+
 ## Durum
 **M1 ✅** AI-sürülebilir çekirdek: JSON sahne + hot-reload, stdin/stdout komut protokolü
 (`entity.*`, `light.set`, `camera.*`, `scene.*`), `observe.screenshot` → PNG,
