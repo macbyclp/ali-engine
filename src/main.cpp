@@ -18,12 +18,14 @@ using nlohmann::json;
 
 int main(int argc, char** argv) {
     bool headless = false;
+    bool start_playing = false;
     int width = 1280, height = 720;
     std::string scene_path;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--headless") headless = true;
+        else if (a == "--play") start_playing = true;
         else if (a == "--scene" && i + 1 < argc) scene_path = argv[++i];
         else if (a == "--width" && i + 1 < argc) width = std::stoi(argv[++i]);
         else if (a == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
@@ -43,6 +45,7 @@ int main(int argc, char** argv) {
 
     eng::ControlChannel channel;
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, scene_path};
+    ctx.sim_running = start_playing;
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
                    scene_path.empty() ? "(none)" : scene_path.c_str());
