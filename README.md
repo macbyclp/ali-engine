@@ -1,122 +1,221 @@
+<div align="center">
+
 # ali-engine
 
-Yapay zekanın **uçtan uca yönetebildiği** 3B oyun motoru. Bir AI ajanı sahneyi, ışıkları,
-kamerayı, malzemeleri makine arayüzünden (stdin/stdout JSON) kurar ve render edilen kareyi
-görüntü olarak geri alır. İnsanlar için: Unreal-stil ImGui editör (`--editor`) + Blueprint
-görsel scripting — ama veri modeli tek (sahne JSON), editörün ürettiği her şey AI'nın da
-kullandığı komut.
+**An AI-native 3D game engine.**
+An AI agent builds and runs the whole game over a JSON command stream.
+Humans get an Unreal-style editor and Blueprint-style visual scripting on top —
+same data model, no separate export step.
 
-Native, C++20, OpenGL 4.5. Mimari ve yol haritası: [ARCHITECTURE.md](ARCHITECTURE.md).
-AI kontrol protokolü: [docs/AI-PROTOCOL.md](docs/AI-PROTOCOL.md).
+`C++20` · `OpenGL 4.5` · `Windows`
 
 ![showcase](media/showcase.gif)
 
-*Yukarıdaki sahne tamamen `tools/gen_media.py` içindeki JSON komutlarıyla kuruldu ve
-headless render edildi — PBR, iskeletsel animasyon, Jolt fizik, davranış scriptleri,
-point ışıklar, partiküller, bloom.*
+<sub>Every object, light, material, particle and behaviour in that clip was created by JSON commands and rendered headless — no C++ was written for the scene.</sub>
 
-| Malzeme (metallic-roughness + normal map) | Point + spot ışıklar |
+</div>
+
+---
+
+## The idea
+
+Most engines are built for a human in an editor. ali-engine is built so an **AI agent
+can drive the entire loop**: create a scene, place lights and cameras, wire up gameplay
+rules, step the simulation, and **get the rendered frame back as an image** to reason
+about — then iterate.
+
+Everything is data. The scene is JSON. Behaviours are JSON. The control surface is
+~49 line-delimited JSON commands on stdin/stdout. That makes the engine:
+
+- **AI-native** — a model emits commands, reads back screenshots and structured state
+- **Deterministic** — same scene + same commands → same result; fixed-step simulation
+- **Headless-first** — full rendering and screenshots with no window (CI, agent loops)
+- **Human-friendly too** — the ImGui editor and the Blueprint graph produce the *same*
+  commands and JSON the AI uses. A human and an AI can work on one game, one shared model.
+
+```
+              ┌──────────────┐   JSON commands (stdin)    ┌────────────┐
+   AI agent ──┤              ├──────────────────────────► │            │
+              │  your code   │ ◄──────────────────────────┤ ali-engine │
+   or human ──┤              │   screenshots + state      │            │
+              └──────────────┘                            └────────────┘
+                    ▲                                            │
+                    └──────────  GUI editor / Blueprint  ────────┘
+```
+
+---
+
+## Features
+
+**Rendering**
+- Metallic-roughness PBR (Cook-Torrance), procedural-sky IBL approximation
+- 3-cascade shadow maps (frustum-fit, texel-snapped, PCF)
+- HDR pipeline: RGBA16F target, ACES tonemap, bloom, exposure, vignette
+- Point / spot lights (forward, up to 16), attenuation, soft spot cones
+- Textures: albedo / normal / metallic-roughness / emissive / AO, mipmaps, anisotropy
+- glTF 2.0 import — meshes, materials (incl. embedded `.glb` textures), skins, animations
+- GPU instancing by mesh+material · job-parallel frustum culling · 2000+ objects in 2 draw calls
+
+**Simulation & gameplay**
+- Jolt Physics — rigid bodies, ray casts, contact events, `CharacterVirtual` controller
+- Grid navmesh + 8-way A* pathfinding
+- Skeletal animation — clip playback, TRS-level cross-fade, GPU skinning (128 bones)
+- Data-driven behaviours — `on: start/tick/collision/event` → actions, conditions, timers
+- Global game state store, checkpoints (`checkpoint.save/restore`)
+- CPU particle system (additive billboards), spatial audio (miniaudio)
+- Screen-space UI — panels, text (stb_truetype), bars, 9 anchors
+
+**Tooling**
+- `--editor` — embedded Dear ImGui editor, laid out after Unreal's UMG editor
+- ImGuizmo transform gizmos, orbit-camera viewport, live JSON console
+- **Blueprint visual scripting** — node graph that compiles to behaviour JSON, and
+  round-trips *from* it (see below)
+
+<div align="center">
+<img src="media/editor.png" width="820" alt="editor"><br>
+<sub>The <code>--editor</code> view: Palette · Hierarchy · Viewport · Details · Animations · Timeline · Output Log</sub>
+</div>
+
+| Materials — roughness sweep + normal map | Point + spot lights |
 | --- | --- |
 | ![materials](media/materials.png) | ![lighting](media/lighting.png) |
 
-## Durum
-**M1 ✅** AI-sürülebilir çekirdek: JSON sahne + hot-reload, stdin/stdout komut protokolü
-(`entity.*`, `light.set`, `camera.*`, `scene.*`), `observe.screenshot` → PNG,
-prosedürel primitifler + glTF geometri.
+---
 
-**M2 ✅** Render kalitesi: metallic-roughness PBR (Cook-Torrance), prosedürel-sky
-IBL yaklaşımı, yönlü gölge haritası (2048, PCF 3×3), HDR RGBA16F + ACES tonemap.
+## Quick start
 
-**M3 ✅** Fizik: Jolt Physics entegrasyonu, RigidBody component (static/dynamic/kinematic,
-box/sphere), ECS↔Jolt senkron + transform geri-yazma, `world.step`, `physics.play/pause`,
-`physics.raycast`, `physics.setGravity`.
+**Prerequisites:** CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
+(for the GL loader codegen).
 
-**M4 ✅** Davranış: veri-güdümlü `Behavior` component (JSON kurallar), tetikleyiciler
-`start`/`tick`/`collision`/`event`, aksiyonlar (impulse, setVelocity, spin, moveToward,
-setMaterial, spawn, destroy, emit), Jolt contact event'leri, `behavior.set/get`, `event.emit`.
-
-**M5 ✅** Ölçek: frustum culling (job-parallel, mesh bounding sphere), aynı mesh'i tek
-`glDrawElementsInstanced` çağrısında toplayan GPU instancing, paylaşımlı mesh önbelleği,
-thread pool (`JobSystem`), `observe.stats` (entities/visible/culled/draw_calls/cpu_ms).
-2000+ obje → 2 draw call.
-
-**M7 ✅** Materyal & doku: stb_image doku yükleme (sRGB/linear), mipmap + anizotropik,
-doku önbelleği, tangent hesaplama, normal mapping (TBN), emissive, AO, uv_scale.
-glTF PBR materyal import (baseColor/normal/metallic-roughness/emissive/occlusion,
-gömülü .glb dokular dahil). Prosedürel test dokuları (`builtin:checker/grid/bumps/...`).
-Materyale göre gruplama → instancing korunur.
-
-**M8 ✅** Sahne grafı & prefab: `Hierarchy` component + parent/child, `WorldTransform`
-(update_world_transforms, keyfi derinlik), `entity.setParent`, `entity.spawn {parent}`.
-Prefab = JSON alt-ağaç: `prefab.save`, `prefab.instantiate` (isim önekleme + kök konumlama).
-glTF çok-node hiyerarşi: node transformları vertex'lere baked, çok-parçalı modeller korunur.
-
-**M9 ✅** Animasyon: skinned mesh (Vertex joint/weight), `Skeleton` (bind pose + inverse
-bind), `AnimationClip` (T/R/S kanalları, lineer + slerp interp), `AnimationPlayer` component,
-GPU skinning (128 kemik, ayrı çizim yolu). glTF skin + animasyon import. Prosedürel test
-modeli `builtin:bendbar`. `animation.play/pause/stop/list`.
-
-**M10 ✅** Işık & gölge: `PunctualLight` component (point + spot), forward çoklu ışık
-döngüsü (16'ya kadar), mesafe attenuation, spot konisi (smoothstep yumuşak kenar),
-`light.add {type:"point"|"spot"}`. Yönlü ışık gölge haritası korunuyor (point/spot gölge
-= gelecek).
-
-**M11 ✅** Karakter & navigasyon: `CharacterController` (Jolt `CharacterVirtual` — kapsül,
-move & slide, yerçekimi, zemin algılama, eğim limiti, zıplama), `character.create/move/
-jump/moveTo`. Grid-tabanlı navmesh (`NavGrid`): statik gövdelerden bake, 8-yön A*,
-`nav.bake` / `nav.path`. `character.moveTo` yol takibi + yön dönüşü.
-
-**M12 ✅** Ses & partikül & post: **bloom** (bright-pass + ayrık gaussian + kompozit),
-**exposure + vignette**. **CPU partikül sistemi** (`ParticleEmitter`: rate/lifetime/
-velocity spread/gravity/renk-boyut lerp), additive camera-facing billboard'lar,
-`particles.emit/stop`. **Uzamsal ses** (miniaudio): `audio.play/stop`, kamera-takipli
-dinleyici, 3B konumlandırma.
-
-## Build (Windows)
-```
+```bash
 py -m pip install jinja2
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Debug
 ```
 
-## Çalıştır
+All third-party libraries (GLFW, GLM, EnTT, nlohmann/json, Jolt, cgltf, stb, miniaudio,
+Dear ImGui, ImGuizmo, imgui-node-editor) are fetched by CMake — no manual setup.
+
+**Run:**
+
+```bash
+# headless — the AI-driving mode
+build\Debug\engine.exe --headless --scene scenes/showcase.json
+
+# visible window, physics running
+build\Debug\engine.exe --scene scenes/showcase.json --play
+
+# full editor
+build\Debug\engine.exe --editor --scene scenes/showcase.json
+
+# example AI driver (spawns a scene, steps it, screenshots, quits)
+python tools/drive.py
 ```
-build\Debug\engine.exe --scene scenes/demo.json                 # görünür pencere
-build\Debug\engine.exe --headless --scene scenes/demo.json      # sadece AI + screenshot
-python tools/drive.py                                           # örnek AI sürücüsü
+
+---
+
+## The control loop
+
+The engine reads one JSON request per line and answers with one JSON response.
+Logs go to stderr, so stdout stays a clean channel.
+
+```jsonc
+> {"method":"scene.reset"}
+< {"ok":true,"result":{}}
+
+> {"method":"entity.spawn","params":{"name":"ball","primitive":"sphere",
+    "position":[0,5,0],"metallic":1.0,"roughness":0.15,
+    "body":{"type":"dynamic","restitution":0.8}}}
+< {"ok":true,"result":{"name":"ball"}}
+
+> {"method":"behavior.set","params":{"name":"ball","behaviors":[
+    {"on":"collision","with":"floor","do":[
+      {"action":"addState","key":"bounces","value":1},
+      {"action":"impulse","impulse":[0,6,0]}]}]}}
+< {"ok":true,"result":{}}
+
+> {"method":"world.step","params":{"dt":0.016,"steps":180}}
+> {"method":"observe.screenshot","params":{"path":"out.png"}}
+< {"ok":true,"result":{"path":"out.png","width":1280,"height":720}}
+
+> {"method":"observe.entities"}          // screen-space positions + visibility for reasoning
+> {"method":"observe.view","params":{"position":[10,3,0],"target":[0,1,0]}}   // free camera, scene camera untouched
 ```
 
-## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
-M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
-M10 ışık ✅ · M11 karakter & navigasyon ✅ · M12 ses & partikül & post ✅ · M13 UI & metin ✅ ·
-M14 CSM + animasyon blend ✅ · M15 AI gözlem + gameplay ✅ · M16 Unreal-stil GUI editör ✅ ·
-**M17 Blueprint görsel scripting ✅**
+Full command reference: [`docs/AI-PROTOCOL.md`](docs/AI-PROTOCOL.md).
 
-**Cila:** spot gölge, animasyon state machine, terrain, SSAO, Recast navmesh,
-prosedürel mesh/CSG, ses bus'ları, eklenti/modül API.
+---
 
-**M13 ✅** UI & metin: `Font` (stb_truetype atlas), `UIElement` component
-(panel/text/bar, 9 anchor), ekran-uzayı UI pass, `ui.add/set/remove`. HUD, can barı,
-skor paneli, ipucu kutusu.
+## AI writes it, a human sees it as Blueprint
 
-**M14 ✅** Gölge derinliği + animasyon blend: 3-cascade **CSM** (view-frustum'a oturan
-ortho kutular, texel snap, polygon offset, PCF, cascade seçimi view-depth'ten), TRS
-seviyesinde **animasyon crossfade** (`animation.play {clip, fade}` — iki klip harmanı, slerp).
+Behaviours the AI authors (`behavior.set`, or in the scene JSON) are stored as rules.
+Open the editor, switch to **Graph** mode, select the entity — the Blueprint editor
+reconstructs those rules as a node graph:
 
-**M15 ✅** AI gözlem + gameplay: `observe.view` (sahne kamerasını bozmadan serbest açı render),
-`observe.entities` (her varlık için ekran koordinatı + görünürlük + mesafe), global **state
-store** (`state.set/get/list`) + behavior `if`/`setState`/`addState`/`timer`/`setUI` aksiyonları
-+ `${key}` metin enterpolasyonu, `timer.after`, `checkpoint.save/restore` (sahne + state anlık görüntüsü).
+- each `on:` rule → an **event node** (On Start / On Collision / On Event…)
+- each action → an **action node** (Impulse, Add State, Set Color, Emit, Timer…)
+- chained by exec pins in order
 
-**M16 ✅** GUI editör: `--editor` ile gömülü Dear ImGui, **Unreal UMG layout'u** — menü bar,
-toolbar, Palette (kategorili), Hierarchy, Details, cetvelli Viewport, Animations, Timeline,
-Output Log, status bar, Designer/Graph toggle. Koyu Unreal teması, DockBuilder sabit layout.
-ImGuizmo transform gizmo'ları, orbit kamera, JSON komut konsolu. Sahne JSON gerçeğin kaynağı.
+Edit the nodes, hit **Compile**, and it writes the JSON back. Round-trip: AI ⇄ visual graph
+⇄ the same data.
 
-**M17 ✅** Blueprint görsel scripting: imgui-node-editor tabanlı düğüm grafiği (Graph modu).
-Event düğümleri (start/tick/collision/event) → action düğümleri (impulse/spin/spawn/setState/
-timer/setUI/...) exec pinleriyle bağlanır; **Compile** grafiği `behavior.set` JSON'una çevirir
-(AI ile aynı format). Var olan Behavior'dan grafik geri kurulur — round-trip.
+---
 
-**M1–M17 tamamlandı** (M6 Vulkan hariç, ertelendi).
+## Architecture
+
+```
+src/
+  core/        window (GL 4.5, headless), job system, logging
+  render/      PBR renderer, CSM, bloom, framebuffers, meshes, shaders
+  physics/     Jolt wrapper, ECS↔physics bridge, character controller
+  anim/        skeleton, clip sampling, cross-fade, GPU skin matrices
+  scene/       EnTT registry ⇄ JSON, hierarchy / world transforms, prefabs
+  ecs/         component definitions
+  behavior/    data-driven behaviour interpreter
+  nav/         grid navmesh + A*
+  fx/          particle simulation
+  audio/       miniaudio engine wrapper
+  ui/          bitmap font atlas, screen-space UI
+  game/        global state, timers
+  aicontrol/   stdin/stdout JSON channel, command dispatch
+  editor/      ImGui editor, Unreal-style theme, Blueprint graph
+  main.cpp     modes: headless · window · --editor
+```
+
+Design principles: headless always works · determinism · everything serialises to JSON ·
+one command path (the AI console, the editor and the Blueprint compiler all call it).
+See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+---
+
+## vs. Godot / Unreal
+
+Not a replacement for a mature general-purpose engine — Godot and Unreal win on
+maturity, ecosystem, platform reach and per-subsystem depth (GI, terrain, full navmesh,
+blend trees, asset editors).
+
+Where ali-engine leads, for its purpose:
+
+1. **AI-native control surface** — deterministic, headless, structured observation
+2. **Built-in visual scripting** — Godot 4 shipped without any
+3. **One shared model** — an AI and a human can build the same game together, one via
+   commands, one via the editor / Blueprint
+
+If the workflow is "AI generates the game, a human reviews and tweaks it," this engine is
+built for exactly that.
+
+---
+
+## Roadmap
+
+Done: core · PBR + CSM · Jolt physics · behaviours · culling/instancing · textures ·
+scene graph + prefabs · skeletal animation + blend · point/spot lights · character +
+navigation · particles/audio/post · UI + text · AI observation + gameplay layer ·
+Unreal-style editor · Blueprint visual scripting.
+
+Deferred / next: Vulkan RHI · spot & point shadows · animation state machine · terrain ·
+SSAO · Recast navmesh · procedural mesh / CSG · audio buses · plugin / module API.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
