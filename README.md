@@ -43,4 +43,4 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek ✅ · M6 Vulkan RHI
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek ✅ · M6 Vulkan RHI ⏸️ ertelendi
