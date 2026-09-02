@@ -1,5 +1,7 @@
 #pragma once
 #include "aicontrol/commands.hpp"
+#include "editor/blueprint.hpp"
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -38,6 +40,7 @@ private:
     int gizmo_op_ = 7;
     int gizmo_mode_ = 1;
 
+    std::unique_ptr<BlueprintEditor> bp_;
     std::vector<std::string> console_log_;
     char console_buf_[512] = {0};
     char save_path_[512] = "scenes/edited.json";

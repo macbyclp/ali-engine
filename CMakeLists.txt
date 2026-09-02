@@ -36,9 +36,11 @@ FetchContent_Declare(cgltf GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
 FetchContent_Declare(miniaudio GIT_REPOSITORY https://github.com/mackron/miniaudio.git
     GIT_TAG 0.11.21)
 FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.91.5-docking)
+    GIT_TAG v1.90.9-docking)
 FetchContent_Declare(imguizmo GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
     GIT_TAG ba662b119d64f9ab700bb2cd7b2781f9044f5565)
+FetchContent_Declare(imnodes GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
+    GIT_TAG v0.9.3)
 
 set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
@@ -51,8 +53,29 @@ FetchContent_Declare(jolt
     GIT_TAG v5.2.0
     SOURCE_SUBDIR Build)
 
-FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt miniaudio imgui imguizmo)
+FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt miniaudio imgui imguizmo imnodes)
 glad_add_library(glad_gl46 STATIC API gl:core=4.6)
+
+# imgui-node-editor 0.9.3 predates imgui's own ImVec2 ==/!= operators (imgui.h,
+# behind IMGUI_DEFINE_MATH_OPERATORS -- which node-editor turns on itself). It then
+# redefines them as `inline` against imgui's `static inline`, so the TU fails to
+# compile. Guard node-editor's copies behind imgui's own "implemented" marker.
+function(_patch_node_editor_math file)
+    file(READ "${file}" _src)
+    if(NOT _src MATCHES "ALIENGINE_MATH_PATCHED")
+        string(REPLACE
+            "inline bool operator==(const ImVec2& lhs, const ImVec2& rhs)"
+            "// ALIENGINE_MATH_PATCHED\n# ifndef IMGUI_DEFINE_MATH_OPERATORS_IMPLEMENTED\ninline bool operator==(const ImVec2& lhs, const ImVec2& rhs)"
+            _src "${_src}")
+        string(REPLACE
+            "inline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
+            "# endif // IMGUI_DEFINE_MATH_OPERATORS_IMPLEMENTED\ninline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
+            _src "${_src}")
+        file(WRITE "${file}" "${_src}")
+    endif()
+endfunction()
+_patch_node_editor_math("${imnodes_SOURCE_DIR}/imgui_extra_math.h")
+_patch_node_editor_math("${imnodes_SOURCE_DIR}/imgui_extra_math.inl")
 
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -61,9 +84,13 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp)
+    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+    ${imnodes_SOURCE_DIR}/imgui_node_editor.cpp
+    ${imnodes_SOURCE_DIR}/imgui_node_editor_api.cpp
+    ${imnodes_SOURCE_DIR}/imgui_canvas.cpp
+    ${imnodes_SOURCE_DIR}/crude_json.cpp)
 target_include_directories(imgui PUBLIC
-    ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imguizmo_SOURCE_DIR})
+    ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imguizmo_SOURCE_DIR} ${imnodes_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
