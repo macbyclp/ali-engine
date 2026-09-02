@@ -15,6 +15,10 @@ prosedürel primitifler + glTF geometri.
 **M2 ✅** Render kalitesi: metallic-roughness PBR (Cook-Torrance), prosedürel-sky
 IBL yaklaşımı, yönlü gölge haritası (2048, PCF 3×3), HDR RGBA16F + ACES tonemap.
 
+**M3 ✅** Fizik: Jolt Physics entegrasyonu, RigidBody component (static/dynamic/kinematic,
+box/sphere), ECS↔Jolt senkron + transform geri-yazma, `world.step`, `physics.play/pause`,
+`physics.raycast`, `physics.setGravity`.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -30,4 +34,4 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik · M4 davranış sistemi · M5 ölçek · M6 Vulkan RHI
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi · M5 ölçek · M6 Vulkan RHI

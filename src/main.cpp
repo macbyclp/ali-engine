@@ -2,6 +2,7 @@
 #include "aicontrol/commands.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
+#include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
 #include "render/renderer.hpp"
 #include "scene/scene.hpp"
@@ -35,8 +36,11 @@ int main(int argc, char** argv) {
     if (!scene_path.empty()) scene.load_file(scene_path);
     scene.camera();   // guarantee an active camera exists
 
+    eng::PhysicsSystem physics;
+    physics.sync(scene);
+
     eng::ControlChannel channel;
-    eng::CommandContext ctx{scene, renderer, offscreen, scene_path};
+    eng::CommandContext ctx{scene, renderer, offscreen, physics, scene_path};
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
                    scene_path.empty() ? "(none)" : scene_path.c_str());
@@ -52,8 +56,14 @@ int main(int argc, char** argv) {
     };
     last_write = scene_mtime();
 
+    double prev_time = glfwGetTime();
     while (!ctx.quit && !window.should_close()) {
         window.poll();
+
+        double now = glfwGetTime();
+        float dt = float(now - prev_time);
+        prev_time = now;
+        if (dt > 0.1f) dt = 0.1f;
 
         // hot-reload the active scene file if it changed on disk
         if (!ctx.scene_path.empty()) {
@@ -75,6 +85,9 @@ int main(int argc, char** argv) {
             if (req.value("method", std::string()) == "scene.load")
                 last_write = scene_mtime();
         }
+
+        if (ctx.sim_running) physics.step(scene, dt);
+        else physics.sync(scene);
 
         if (!headless) {
             renderer.render(scene, 0, window.width(), window.height());

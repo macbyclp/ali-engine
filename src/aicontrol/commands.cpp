@@ -77,16 +77,42 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             mr.roughness = p.value("roughness", mr.roughness);
             scene.registry.emplace<MeshRenderer>(e, mr);
             scene.resolve_gpu_meshes();
+
+            if (p.contains("body")) {
+                const json& jb = p["body"];
+                RigidBody rb;
+                rb.type = jb.value("type", std::string("dynamic"));
+                rb.shape = jb.value("shape", std::string());
+                rb.mass = jb.value("mass", rb.mass);
+                rb.restitution = jb.value("restitution", rb.restitution);
+                rb.friction = jb.value("friction", rb.friction);
+                scene.registry.emplace<RigidBody>(e, rb);
+                ctx.physics.sync(scene);
+            }
             return ok(id, {{"name", name}});
+        }
+        if (method == "entity.setBody") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto& rb = scene.registry.get_or_emplace<RigidBody>(e);
+            rb.type = p.value("type", rb.type);
+            rb.shape = p.value("shape", rb.shape);
+            rb.mass = p.value("mass", rb.mass);
+            rb.restitution = p.value("restitution", rb.restitution);
+            rb.friction = p.value("friction", rb.friction);
+            ctx.physics.sync(scene);
+            return ok(id);
         }
         if (method == "entity.destroy") {
             std::string name = p.at("name").get<std::string>();
             return scene.destroy(name) ? ok(id) : fail(id, "no such entity: " + name);
         }
         if (method == "entity.setTransform") {
-            auto e = scene.find(p.at("name").get<std::string>());
+            std::string name = p.at("name").get<std::string>();
+            auto e = scene.find(name);
             if (e == entt::null) return fail(id, "no such entity");
             apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
+            ctx.physics.teleport(scene, name);
             return ok(id);
         }
         if (method == "entity.setMaterial") {
@@ -120,6 +146,37 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             auto& c = scene.camera();
             return ok(id, {{"position", v3(c.position)}, {"target", v3(c.target)},
                            {"fov_deg", c.fov_deg}});
+        }
+        if (method == "world.step") {
+            float dt = p.value("dt", 1.0f / 60.0f);
+            int steps = p.value("steps", 1);
+            int substeps = p.value("substeps", 1);
+            for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i)
+                ctx.physics.step(scene, dt, substeps);
+            return ok(id, {{"stepped", steps}, {"dt", dt}});
+        }
+        if (method == "physics.play")  { ctx.sim_running = true;  return ok(id); }
+        if (method == "physics.pause") { ctx.sim_running = false; return ok(id); }
+        if (method == "physics.setGravity") {
+            ctx.physics.world().set_gravity(v3(p.at("gravity"), glm::vec3(0, -9.81f, 0)));
+            return ok(id);
+        }
+        if (method == "physics.getGravity")
+            return ok(id, {{"gravity", v3(ctx.physics.world().gravity())}});
+        if (method == "physics.raycast") {
+            glm::vec3 o = v3(p.at("origin"), glm::vec3(0));
+            glm::vec3 d = v3(p.at("direction"), glm::vec3(0, -1, 0));
+            float maxd = p.value("max_distance", 1000.0f);
+            ctx.physics.sync(scene);
+            RayHit h = ctx.physics.raycast(o, d, maxd);
+            if (!h.hit) return ok(id, {{"hit", false}});
+            json r = {{"hit", true}, {"point", v3(h.point)}, {"normal", v3(h.normal)},
+                      {"distance", h.distance}};
+            auto ent = scene.registry.view<RigidBody>();
+            for (auto [e, rb] : ent.each())
+                if (rb.registered && rb.handle == h.body)
+                    r["entity"] = scene.registry.get<Name>(e).value;
+            return ok(id, r);
         }
         if (method == "observe.screenshot") {
             int w = p.value("width", ctx.offscreen.width());

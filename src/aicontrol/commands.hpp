@@ -1,4 +1,5 @@
 #pragma once
+#include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
 #include "render/renderer.hpp"
 #include "scene/scene.hpp"
@@ -11,8 +12,10 @@ struct CommandContext {
     Scene& scene;
     Renderer& renderer;
     Framebuffer& offscreen;
+    PhysicsSystem& physics;
     std::string scene_path;   // currently loaded scene file (for hot-reload + default save)
     bool quit = false;
+    bool sim_running = false;  // when true, main loop steps physics every frame
 };
 
 // Executes one request on the main thread, returns the response object.

@@ -89,6 +89,16 @@ void Scene::load_json(const json& j) {
             dl.intensity = jl.value("intensity", dl.intensity);
             registry.emplace<DirectionalLight>(e, dl);
         }
+        if (je.contains("body")) {
+            const auto& jb = je["body"];
+            RigidBody rb;
+            rb.type = jb.value("type", rb.type);
+            rb.shape = jb.value("shape", rb.shape);
+            rb.mass = jb.value("mass", rb.mass);
+            rb.restitution = jb.value("restitution", rb.restitution);
+            rb.friction = jb.value("friction", rb.friction);
+            registry.emplace<RigidBody>(e, rb);
+        }
         if (je.contains("camera")) {
             const auto& jc = je["camera"];
             CameraComp c;
@@ -129,6 +139,15 @@ json Scene::to_json() const {
                 {"color", v3(dl->color)},
                 {"intensity", dl->intensity},
             };
+        }
+        if (auto* rb = registry.try_get<RigidBody>(e)) {
+            je["body"] = {
+                {"type", rb->type},
+                {"mass", rb->mass},
+                {"restitution", rb->restitution},
+                {"friction", rb->friction},
+            };
+            if (!rb->shape.empty()) je["body"]["shape"] = rb->shape;
         }
         if (auto* c = registry.try_get<CameraComp>(e)) {
             je["camera"] = {

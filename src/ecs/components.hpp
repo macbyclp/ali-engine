@@ -44,6 +44,18 @@ struct DirectionalLight {
     float intensity = 1.0f;
 };
 
+// Physics body. Shape defaults are derived from MeshRenderer::primitive + Transform::scale
+// when not given explicitly. handle/registered are runtime-only (not serialized).
+struct RigidBody {
+    std::string type = "dynamic";   // static | dynamic | kinematic
+    std::string shape;              // "", box, sphere  ("" = auto from primitive)
+    float mass = 1.0f;
+    float restitution = 0.2f;
+    float friction = 0.5f;
+    uint32_t handle = 0;
+    bool registered = false;
+};
+
 // The active view. One entity in the scene carries this.
 struct CameraComp {
     glm::vec3 position{0, 2, 6};
