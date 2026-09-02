@@ -36,15 +36,27 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `scene.reset` | — | — |
 | `scene.state` | — | tüm sahne (JSON) |
 | `entity.list` | — | `{names:[...]}` |
-| `entity.spawn` | `{name?, primitive?, gltf_path?, position?, rotation?, scale?, base_color?, metallic?, roughness?}` | `{name}` |
+| `entity.spawn` | `{name?, primitive?, gltf_path?, position?, rotation?, scale?, base_color?, metallic?, roughness?, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
-| `entity.setTransform` | `{name, position?, rotation?, scale?}` | — |
+| `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
 | `entity.setMaterial` | `{name, base_color?, metallic?, roughness?}` | — |
+| `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
 | `light.set` | `{name?, direction?, color?, intensity?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |
+| `world.step` | `{dt?, steps?, substeps?}` | `{stepped, dt}` — simülasyonu N adım ilerlet |
+| `physics.play` / `physics.pause` | — | — (her frame otomatik adım) |
+| `physics.setGravity` | `{gravity:[x,y,z]}` | — |
+| `physics.getGravity` | — | `{gravity}` |
+| `physics.raycast` | `{origin, direction, max_distance?}` | `{hit, point?, normal?, distance?, entity?}` |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `quit` | — | — |
+
+### Fizik (`body`)
+`entity.spawn`/`entity.setBody` içinde: `{type: "static"|"dynamic"|"kinematic",
+shape?: "box"|"sphere" (boşsa primitive'den), mass?, restitution?, friction?}`.
+Dinamik gövdeler `world.step` sonrası Transform'a geri yazılır. Deterministik akış:
+sahneyi kur → `world.step` → `observe.screenshot`. Sürekli simülasyon için `physics.play`.
 
 `primitive`: `cube` \| `sphere` \| `plane` \| `gltf` (+ `gltf_path`).
 Vektörler `[x,y,z]`; `scale` tek sayı da olabilir. `rotation` XYZ derece.

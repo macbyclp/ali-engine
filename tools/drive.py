@@ -4,7 +4,7 @@
 Usage:
     python tools/drive.py [path-to-engine.exe]
 
-Spawns the engine headless, builds a small scene, takes a screenshot, quits.
+Builds a small physics scene, simulates it, screenshots the result, quits.
 A stand-in for whatever AI agent will eventually drive the engine.
 """
 import json
@@ -41,17 +41,37 @@ def main() -> int:
 
     print(call("ping"))
     call("scene.reset")
-    call("entity.spawn", name="floor", primitive="plane", scale=[15, 1, 15],
-         base_color=[0.2, 0.22, 0.25])
-    call("entity.spawn", name="cube", primitive="cube", position=[0, 1, 0],
-         base_color=[0.9, 0.4, 0.3])
-    call("entity.spawn", name="ball", primitive="sphere", position=[2, 1, -1],
-         base_color=[0.3, 0.6, 0.9])
-    call("light.set", name="sun", direction=[-0.5, -1, -0.3], intensity=3.2)
-    call("entity.setMaterial", name="ball", metallic=0.9, roughness=0.25)
-    call("camera.set", position=[6, 4, 8], target=[0, 1, 0], fov_deg=55)
+
+    # static floor + walls
+    call("entity.spawn", name="floor", primitive="plane", scale=[12, 1, 12],
+         base_color=[0.22, 0.24, 0.27], body={"type": "static"})
+
+    # a small tower of dynamic boxes + a falling sphere
+    for i in range(5):
+        call("entity.spawn", name=f"box{i}", primitive="cube",
+             position=[0, 0.5 + i * 1.05, 0], rotation=[0, i * 7, 0],
+             base_color=[0.85, 0.45 - i * 0.05, 0.3],
+             body={"type": "dynamic", "mass": 1.0, "restitution": 0.1})
+    call("entity.spawn", name="ball", primitive="sphere", position=[0.4, 8, 0.2],
+         base_color=[0.4, 0.6, 0.95], metallic=0.9, roughness=0.25,
+         body={"type": "dynamic", "mass": 2.0, "restitution": 0.4})
+
+    call("light.set", name="sun", direction=[-0.5, -1, -0.35], intensity=3.2)
+    call("camera.set", position=[7, 5, 9], target=[0, 2, 0], fov_deg=55)
+
+    print("gravity:", call("physics.getGravity"))
+    print("raycast down from above:", call("physics.raycast", origin=[0, 10, 0],
+                                           direction=[0, -1, 0], max_distance=50))
+
+    # simulate ~2.5 seconds
+    call("world.step", dt=1 / 120, steps=300, substeps=2)
+
     shot = call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
     print("screenshot:", shot)
+    state = call("scene.state")["result"]["entities"]
+    for ent in state:
+        if ent["name"] == "box0":
+            print("box0 after sim:", ent["transform"]["position"])
     call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)
