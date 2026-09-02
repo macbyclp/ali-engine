@@ -1,0 +1,27 @@
+{
+  "entities": [
+    {
+      "name": "ground",
+      "transform": { "position": [0, 0, 0], "scale": [20, 1, 20] },
+      "mesh": { "primitive": "plane", "base_color": [0.25, 0.27, 0.3] }
+    },
+    {
+      "name": "hero_cube",
+      "transform": { "position": [0, 1, 0], "rotation": [0, 25, 0] },
+      "mesh": { "primitive": "cube", "base_color": [0.85, 0.35, 0.3] }
+    },
+    {
+      "name": "orb",
+      "transform": { "position": [2.5, 1, -1] },
+      "mesh": { "primitive": "sphere", "base_color": [0.3, 0.6, 0.9] }
+    },
+    {
+      "name": "sun",
+      "light": { "direction": [-0.4, -1.0, -0.3], "color": [1.0, 0.97, 0.9], "intensity": 1.2 }
+    },
+    {
+      "name": "camera",
+      "camera": { "position": [5, 4, 7], "target": [0, 1, 0], "fov_deg": 55 }
+    }
+  ]
+}
