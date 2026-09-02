@@ -7,17 +7,16 @@ struct GLFWwindow;
 
 namespace eng {
 
-// Dear ImGui editor overlaid on the engine window. Human-facing: hierarchy,
-// inspector, transform gizmos, a live viewport, and a command console that runs
-// the very same JSON commands the AI uses. The scene JSON stays the source of truth.
+// Dear ImGui editor, laid out and themed after Unreal's UMG editor. Human-facing:
+// palette / hierarchy / details / viewport / animations / timeline / output log,
+// plus a command console that runs the same JSON commands the AI uses. The scene
+// JSON stays the single source of truth.
 class Editor {
 public:
     explicit Editor(GLFWwindow* window);
     ~Editor();
 
     void begin_frame();
-    // Renders every panel. `scene_tex` is the colour texture of the just-rendered
-    // scene; the viewport shows it and reports the size it wants next frame.
     void draw(CommandContext& ctx, unsigned scene_tex, int tex_w, int tex_h);
     void end_frame();
 
@@ -27,27 +26,36 @@ public:
 private:
     GLFWwindow* window_;
     std::string selected_;
+    std::string selected_anim_;   // entity whose animation the timeline shows
     int vp_w_ = 1280, vp_h_ = 720;
     bool play_ = false;
+    bool layout_built_ = false;
+    int mode_ = 0;   // 0 Designer, 1 Graph (placeholder)
 
-    // orbit camera
-    float cam_yaw_ = -35.0f, cam_pitch_ = 28.0f, cam_dist_ = 16.0f;
-    float pivot_[3] = {0, 1, 0};
+    float cam_yaw_ = -40.0f, cam_pitch_ = 25.0f, cam_dist_ = 16.0f;
+    float pivot_[3] = {0, 1.5f, 0};
 
-    int gizmo_op_ = 7;   // ImGuizmo TRANSLATE
-    int gizmo_mode_ = 1; // WORLD
+    int gizmo_op_ = 7;
+    int gizmo_mode_ = 1;
 
     std::vector<std::string> console_log_;
     char console_buf_[512] = {0};
     char save_path_[512] = "scenes/edited.json";
 
+    void build_layout();
+    void main_menu(CommandContext&);
+    void toolbar(CommandContext&);
+    void status_bar(CommandContext&);
+    void panel_palette(CommandContext&);
     void panel_hierarchy(CommandContext&);
-    void panel_inspector(CommandContext&);
-    void panel_viewport(CommandContext&, unsigned tex, int tw, int th);
-    void panel_console(CommandContext&);
-    void menu_bar(CommandContext&);
+    void panel_details(CommandContext&);
+    void panel_viewport(CommandContext&, unsigned tex);
+    void panel_animations(CommandContext&);
+    void panel_timeline(CommandContext&);
+    void panel_output(CommandContext&);
     void update_orbit_camera(CommandContext&);
     void run_console(CommandContext&, const std::string& line);
+    void spawn(CommandContext&, const char* primitive);
 };
 
 } // namespace eng
