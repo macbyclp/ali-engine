@@ -1,0 +1,42 @@
+{
+  "entities": [
+    { "name": "floor", "transform": { "position": [0, 0, 0], "scale": [30, 1, 30] },
+      "mesh": { "primitive": "plane", "base_color": [0.2, 0.22, 0.26], "roughness": 0.9 },
+      "body": { "type": "static" } },
+
+    { "name": "core", "transform": { "position": [0, 2.2, 0], "scale": [1.6, 1.6, 1.6] },
+      "mesh": { "primitive": "sphere", "base_color": [0.95, 0.75, 0.35], "metallic": 1.0, "roughness": 0.18 },
+      "behavior": [ { "on": "tick", "do": [ { "action": "spin", "axis": [0.2, 1, 0], "speed_deg": 40 } ] } ] },
+
+    { "name": "pillar_a", "transform": { "position": [-4, 1, -2], "rotation": [0, 20, 0] },
+      "mesh": { "primitive": "cube", "base_color": [0.85, 0.3, 0.3] },
+      "behavior": [ { "on": "tick", "do": [ { "action": "spin", "axis": [0, 1, 0], "speed_deg": 90 } ] } ] },
+    { "name": "pillar_b", "transform": { "position": [4, 1, -2] },
+      "mesh": { "primitive": "cube", "base_color": [0.3, 0.75, 0.45] },
+      "behavior": [ { "on": "tick", "do": [ { "action": "spin", "axis": [0, 1, 0], "speed_deg": -70 } ] } ] },
+    { "name": "pillar_c", "transform": { "position": [0, 1, -6] },
+      "mesh": { "primitive": "cube", "base_color": [0.35, 0.5, 0.9] },
+      "behavior": [ { "on": "tick", "do": [ { "action": "spin", "axis": [1, 1, 0], "speed_deg": 60 } ] } ] },
+
+    { "name": "ball1", "transform": { "position": [-1.5, 7, 1] },
+      "mesh": { "primitive": "sphere", "base_color": [0.9, 0.45, 0.6], "roughness": 0.35 },
+      "body": { "type": "dynamic", "mass": 1.0, "restitution": 0.85 },
+      "behavior": [ { "on": "collision", "with": "floor",
+        "do": [ { "action": "impulse", "impulse": [0, 9, 0] } ] } ] },
+    { "name": "ball2", "transform": { "position": [1.5, 9, -1] },
+      "mesh": { "primitive": "sphere", "base_color": [0.5, 0.85, 0.9], "roughness": 0.3 },
+      "body": { "type": "dynamic", "mass": 1.0, "restitution": 0.85 },
+      "behavior": [ { "on": "collision", "with": "floor",
+        "do": [ { "action": "impulse", "impulse": [0, 8, 0] } ] } ] },
+    { "name": "ball3", "transform": { "position": [0, 11, 2] },
+      "mesh": { "primitive": "sphere", "base_color": [0.8, 0.8, 0.4], "roughness": 0.4 },
+      "body": { "type": "dynamic", "mass": 1.0, "restitution": 0.9 },
+      "behavior": [ { "on": "collision", "with": "floor",
+        "do": [ { "action": "impulse", "impulse": [0.5, 9, -0.4] } ] } ] },
+
+    { "name": "sun",
+      "light": { "direction": [-0.45, -1.0, -0.35], "color": [1.0, 0.96, 0.88], "intensity": 3.4 } },
+    { "name": "camera",
+      "camera": { "position": [10, 6, 12], "target": [0, 2, -2], "fov_deg": 52 } }
+  ]
+}
