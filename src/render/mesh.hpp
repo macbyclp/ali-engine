@@ -11,6 +11,7 @@ struct Vertex {
     glm::vec3 pos{0};
     glm::vec3 normal{0, 1, 0};
     glm::vec2 uv{0};
+    glm::vec4 tangent{1, 0, 0, 1};   // xyz = tangent, w = handedness
 };
 
 class Mesh {

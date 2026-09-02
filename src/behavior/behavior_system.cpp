@@ -28,9 +28,14 @@ static void spawn_from_json(Scene& scene, const json& p) {
     }
     MeshRenderer mr;
     mr.primitive = p.value("primitive", std::string("cube"));
+    mr.gltf_path = p.value("gltf_path", std::string());
     mr.base_color = v3(p.value("base_color", json()), mr.base_color);
     mr.metallic = p.value("metallic", mr.metallic);
     mr.roughness = p.value("roughness", mr.roughness);
+    mr.emissive = v3(p.value("emissive", json()), mr.emissive);
+    mr.base_color_map = p.value("base_color_map", std::string());
+    mr.normal_map = p.value("normal_map", std::string());
+    mr.metallic_roughness_map = p.value("metallic_roughness_map", std::string());
     scene.registry.emplace<MeshRenderer>(e, mr);
     if (p.contains("body")) {
         const json& jb = p["body"];
@@ -81,6 +86,7 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, entt::ent
                 mr->base_color = v3(a.value("base_color", a.value("color", json())), mr->base_color);
                 mr->metallic = a.value("metallic", mr->metallic);
                 mr->roughness = a.value("roughness", mr->roughness);
+                mr->emissive = v3(a.value("emissive", json()), mr->emissive);
             }
         } else if (act == "spawn") {
             json p = a;

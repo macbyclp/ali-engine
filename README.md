@@ -28,6 +28,12 @@ setMaterial, spawn, destroy, emit), Jolt contact event'leri, `behavior.set/get`,
 thread pool (`JobSystem`), `observe.stats` (entities/visible/culled/draw_calls/cpu_ms).
 2000+ obje → 2 draw call.
 
+**M7 ✅** Materyal & doku: stb_image doku yükleme (sRGB/linear), mipmap + anizotropik,
+doku önbelleği, tangent hesaplama, normal mapping (TBN), emissive, AO, uv_scale.
+glTF PBR materyal import (baseColor/normal/metallic-roughness/emissive/occlusion,
+gömülü .glb dokular dahil). Prosedürel test dokuları (`builtin:checker/grid/bumps/...`).
+Materyale göre gruplama → instancing korunur.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -43,4 +49,6 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek ✅ · M6 Vulkan RHI ⏸️ ertelendi
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
+M6 Vulkan RHI ⏸️ · **M7 materyal & doku ✅** · M8 sahne grafı & prefab · M9 animasyon ·
+M10 ışık & gölge · M11 karakter & navigasyon · M12 ses & partikül & post
