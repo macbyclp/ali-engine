@@ -4,7 +4,7 @@
 Usage:
     python tools/drive.py [path-to-engine.exe]
 
-Builds a small physics scene, simulates it, screenshots the result, quits.
+Builds a scene driven by data-only Behavior rules, simulates it, screenshots.
 A stand-in for whatever AI agent will eventually drive the engine.
 """
 import json
@@ -35,43 +35,61 @@ def main() -> int:
                 raise RuntimeError("engine closed the connection")
             msg = json.loads(line)
             if "event" in msg:
-                print("event:", msg)
                 continue
             return msg
 
-    print(call("ping"))
+    call("ping")
     call("scene.reset")
 
-    # static floor + walls
     call("entity.spawn", name="floor", primitive="plane", scale=[12, 1, 12],
          base_color=[0.22, 0.24, 0.27], body={"type": "static"})
 
-    # a small tower of dynamic boxes + a falling sphere
-    for i in range(5):
-        call("entity.spawn", name=f"box{i}", primitive="cube",
-             position=[0, 0.5 + i * 1.05, 0], rotation=[0, i * 7, 0],
-             base_color=[0.85, 0.45 - i * 0.05, 0.3],
-             body={"type": "dynamic", "mass": 1.0, "restitution": 0.1})
-    call("entity.spawn", name="ball", primitive="sphere", position=[0.4, 8, 0.2],
-         base_color=[0.4, 0.6, 0.95], metallic=0.9, roughness=0.25,
-         body={"type": "dynamic", "mass": 2.0, "restitution": 0.4})
+    # a spinning kinematic platform (behaviour: constant spin on tick)
+    call("entity.spawn", name="platform", primitive="cube", position=[0, 1, 0],
+         scale=[4, 0.3, 4], base_color=[0.4, 0.45, 0.5],
+         body={"type": "kinematic"})
+    call("behavior.set", name="platform", behaviors=[
+        {"on": "tick", "do": [{"action": "spin", "axis": [0, 1, 0], "speed_deg": 60}]}
+    ])
+
+    # a box that gets kicked at start and reddens when it hits something
+    call("entity.spawn", name="puck", primitive="cube", position=[0, 1.6, 0],
+         base_color=[0.3, 0.7, 0.4],
+         body={"type": "dynamic", "mass": 1.0, "restitution": 0.5})
+    call("behavior.set", name="puck", behaviors=[
+        {"on": "start", "do": [{"action": "impulse", "impulse": [4, 3, 1.5]}]},
+        {"on": "collision", "do": [{"action": "setColor", "color": [0.9, 0.25, 0.2]}]},
+    ])
+
+    # an emitter: every time it receives "burst", it spawns a ball above the platform
+    call("entity.spawn", name="emitter", primitive="sphere", position=[0, 4, 0],
+         base_color=[0.9, 0.8, 0.3], metallic=1.0, roughness=0.2)
+    call("behavior.set", name="emitter", behaviors=[
+        {"on": "event", "name": "burst", "do": [
+            {"action": "spawn", "primitive": "sphere", "position": [0, 5, 0],
+             "base_color": [0.5, 0.6, 0.95],
+             "body": {"type": "dynamic", "mass": 0.5, "restitution": 0.6}}
+        ]}
+    ])
 
     call("light.set", name="sun", direction=[-0.5, -1, -0.35], intensity=3.2)
-    call("camera.set", position=[7, 5, 9], target=[0, 2, 0], fov_deg=55)
+    call("camera.set", position=[8, 6, 10], target=[0, 1.5, 0], fov_deg=55)
 
-    print("gravity:", call("physics.getGravity"))
-    print("raycast down from above:", call("physics.raycast", origin=[0, 10, 0],
-                                           direction=[0, -1, 0], max_distance=50))
+    # simulate, emitting a burst partway through
+    call("world.step", dt=1 / 120, steps=120, substeps=2)
+    call("event.emit", event="burst")
+    call("world.step", dt=1 / 120, steps=120, substeps=2)
+    call("event.emit", event="burst")
+    call("world.step", dt=1 / 120, steps=180, substeps=2)
 
-    # simulate ~2.5 seconds
-    call("world.step", dt=1 / 120, steps=300, substeps=2)
+    print("entities:", call("entity.list")["result"]["names"])
+    for ent in call("scene.state")["result"]["entities"]:
+        if ent["name"] == "puck":
+            print("puck color:", ent["mesh"]["base_color"],
+                  " pos:", ent["transform"]["position"])
 
     shot = call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
     print("screenshot:", shot)
-    state = call("scene.state")["result"]["entities"]
-    for ent in state:
-        if ent["name"] == "box0":
-            print("box0 after sim:", ent["transform"]["position"])
     call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)

@@ -99,6 +99,9 @@ void Scene::load_json(const json& j) {
             rb.friction = jb.value("friction", rb.friction);
             registry.emplace<RigidBody>(e, rb);
         }
+        if (je.contains("behavior")) {
+            registry.emplace<Behavior>(e, Behavior{je["behavior"], false});
+        }
         if (je.contains("camera")) {
             const auto& jc = je["camera"];
             CameraComp c;
@@ -148,6 +151,9 @@ json Scene::to_json() const {
                 {"friction", rb->friction},
             };
             if (!rb->shape.empty()) je["body"]["shape"] = rb->shape;
+        }
+        if (auto* b = registry.try_get<Behavior>(e)) {
+            if (b->rules.is_array() && !b->rules.empty()) je["behavior"] = b->rules;
         }
         if (auto* c = registry.try_get<CameraComp>(e)) {
             je["camera"] = {

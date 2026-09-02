@@ -13,6 +13,12 @@ public:
     void step(Scene& scene, float dt, int substeps = 1);
     void teleport(Scene& scene, const std::string& name);  // push ECS transform -> body
 
+    void impulse(const std::string& name, Scene& scene, const glm::vec3& j);
+    void set_velocity(const std::string& name, Scene& scene, const glm::vec3& v);
+
+    // Contact pairs since last drain, resolved to entities (invalid if body gone).
+    std::vector<std::pair<entt::entity, entt::entity>> drain_contacts();
+
     PhysicsWorld& world() { return world_; }
     RayHit raycast(const glm::vec3& o, const glm::vec3& d, float max_d) const {
         return world_.raycast(o, d, max_d);

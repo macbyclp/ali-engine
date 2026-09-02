@@ -1,5 +1,6 @@
 #include "aicontrol/channel.hpp"
 #include "aicontrol/commands.hpp"
+#include "behavior/behavior_system.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 #include "physics/physics_system.hpp"
@@ -38,9 +39,10 @@ int main(int argc, char** argv) {
 
     eng::PhysicsSystem physics;
     physics.sync(scene);
+    eng::BehaviorSystem behaviors;
 
     eng::ControlChannel channel;
-    eng::CommandContext ctx{scene, renderer, offscreen, physics, scene_path};
+    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, scene_path};
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
                    scene_path.empty() ? "(none)" : scene_path.c_str());
@@ -86,8 +88,12 @@ int main(int argc, char** argv) {
                 last_write = scene_mtime();
         }
 
-        if (ctx.sim_running) physics.step(scene, dt);
-        else physics.sync(scene);
+        if (ctx.sim_running) {
+            behaviors.tick(scene, physics, dt);
+            physics.step(scene, dt);
+        } else {
+            physics.sync(scene);
+        }
 
         if (!headless) {
             renderer.render(scene, 0, window.width(), window.height());

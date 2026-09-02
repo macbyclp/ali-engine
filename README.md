@@ -19,6 +19,10 @@ IBL yaklaşımı, yönlü gölge haritası (2048, PCF 3×3), HDR RGBA16F + ACES 
 box/sphere), ECS↔Jolt senkron + transform geri-yazma, `world.step`, `physics.play/pause`,
 `physics.raycast`, `physics.setGravity`.
 
+**M4 ✅** Davranış: veri-güdümlü `Behavior` component (JSON kurallar), tetikleyiciler
+`start`/`tick`/`collision`/`event`, aksiyonlar (impulse, setVelocity, spin, moveToward,
+setMaterial, spawn, destroy, emit), Jolt contact event'leri, `behavior.set/get`, `event.emit`.
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -34,4 +38,4 @@ python tools/drive.py                                           # örnek AI sür
 ```
 
 ## Yol haritası
-M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi · M5 ölçek · M6 Vulkan RHI
+M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış sistemi ✅ · M5 ölçek · M6 Vulkan RHI

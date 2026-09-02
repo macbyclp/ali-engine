@@ -2,6 +2,7 @@
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
 
@@ -54,6 +55,14 @@ struct RigidBody {
     float friction = 0.5f;
     uint32_t handle = 0;
     bool registered = false;
+};
+
+// Data-driven behaviour. `rules` is a JSON array of { "on": trigger, "do": [actions] }
+// interpreted by BehaviorSystem each step. Triggers: start | tick | collision | event.
+// Kept as raw JSON so an AI can emit it verbatim.
+struct Behavior {
+    nlohmann::json rules = nlohmann::json::array();
+    bool started = false;
 };
 
 // The active view. One entity in the scene carries this.
