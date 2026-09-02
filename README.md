@@ -1,8 +1,10 @@
 # ali-engine
 
-Yapay zekanın **uçtan uca yönetebildiği** 3B oyun motoru. GUI editör yok — bir AI ajanı
-sahneyi, ışıkları, kamerayı, malzemeleri makine arayüzünden kurar ve render edilen kareyi
-görüntü olarak geri alır.
+Yapay zekanın **uçtan uca yönetebildiği** 3B oyun motoru. Bir AI ajanı sahneyi, ışıkları,
+kamerayı, malzemeleri makine arayüzünden (stdin/stdout JSON) kurar ve render edilen kareyi
+görüntü olarak geri alır. İnsanlar için: Unreal-stil ImGui editör (`--editor`) + Blueprint
+görsel scripting — ama veri modeli tek (sahne JSON), editörün ürettiği her şey AI'nın da
+kullandığı komut.
 
 Native, C++20, OpenGL 4.5. Mimari ve yol haritası: [ARCHITECTURE.md](ARCHITECTURE.md).
 AI kontrol protokolü: [docs/AI-PROTOCOL.md](docs/AI-PROTOCOL.md).
@@ -88,10 +90,11 @@ python tools/drive.py                                           # örnek AI sür
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
 M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
 M10 ışık ✅ · M11 karakter & navigasyon ✅ · M12 ses & partikül & post ✅ · M13 UI & metin ✅ ·
-M14 CSM + animasyon blend ✅ · M15 AI gözlem + gameplay ✅ · **M16 GUI editör ✅**
+M14 CSM + animasyon blend ✅ · M15 AI gözlem + gameplay ✅ · M16 Unreal-stil GUI editör ✅ ·
+**M17 Blueprint görsel scripting ✅**
 
-**Sıradaki:** M17 eklenti/modül sistemi + doklar. **Cila:** spot gölge, animasyon state
-machine, terrain, SSAO, Recast navmesh, prosedürel mesh/CSG, ses bus'ları.
+**Cila:** spot gölge, animasyon state machine, terrain, SSAO, Recast navmesh,
+prosedürel mesh/CSG, ses bus'ları, eklenti/modül API.
 
 **M13 ✅** UI & metin: `Font` (stb_truetype atlas), `UIElement` component
 (panel/text/bar, 9 anchor), ekran-uzayı UI pass, `ui.add/set/remove`. HUD, can barı,
@@ -106,8 +109,14 @@ seviyesinde **animasyon crossfade** (`animation.play {clip, fade}` — iki klip 
 store** (`state.set/get/list`) + behavior `if`/`setState`/`addState`/`timer`/`setUI` aksiyonları
 + `${key}` metin enterpolasyonu, `timer.after`, `checkpoint.save/restore` (sahne + state anlık görüntüsü).
 
-**M16 ✅** GUI editör: `--editor` ile gömülü Dear ImGui — dockspace, hierarchy, inspector
-(transform/mesh/ışık/rigidbody), ImGuizmo transform gizmo'ları, orbit kamera viewport,
-JSON komut konsolu (AI ile aynı `dispatch`), File→Save. Sahne JSON gerçeğin kaynağı.
+**M16 ✅** GUI editör: `--editor` ile gömülü Dear ImGui, **Unreal UMG layout'u** — menü bar,
+toolbar, Palette (kategorili), Hierarchy, Details, cetvelli Viewport, Animations, Timeline,
+Output Log, status bar, Designer/Graph toggle. Koyu Unreal teması, DockBuilder sabit layout.
+ImGuizmo transform gizmo'ları, orbit kamera, JSON komut konsolu. Sahne JSON gerçeğin kaynağı.
 
-**M1–M16 tamamlandı** (M6 Vulkan hariç, ertelendi).
+**M17 ✅** Blueprint görsel scripting: imgui-node-editor tabanlı düğüm grafiği (Graph modu).
+Event düğümleri (start/tick/collision/event) → action düğümleri (impulse/spin/spawn/setState/
+timer/setUI/...) exec pinleriyle bağlanır; **Compile** grafiği `behavior.set` JSON'una çevirir
+(AI ile aynı format). Var olan Behavior'dan grafik geri kurulur — round-trip.
+
+**M1–M17 tamamlandı** (M6 Vulkan hariç, ertelendi).
