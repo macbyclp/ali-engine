@@ -44,6 +44,11 @@ bind), `AnimationClip` (T/R/S kanalları, lineer + slerp interp), `AnimationPlay
 GPU skinning (128 kemik, ayrı çizim yolu). glTF skin + animasyon import. Prosedürel test
 modeli `builtin:bendbar`. `animation.play/pause/stop/list`.
 
+**M10 ✅** Işık & gölge: `PunctualLight` component (point + spot), forward çoklu ışık
+döngüsü (16'ya kadar), mesafe attenuation, spot konisi (smoothstep yumuşak kenar),
+`light.add {type:"point"|"spot"}`. Yönlü ışık gölge haritası korunuyor (point/spot gölge
+= gelecek).
+
 ## Build (Windows)
 ```
 py -m pip install jinja2
@@ -60,5 +65,5 @@ python tools/drive.py                                           # örnek AI sür
 
 ## Yol haritası
 M1 çekirdek ✅ · M2 PBR+IBL+gölge ✅ · M3 Jolt fizik ✅ · M4 davranış ✅ · M5 ölçek ✅ ·
-M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · **M9 animasyon ✅** ·
-M10 ışık & gölge · M11 karakter & navigasyon · M12 ses & partikül & post
+M6 Vulkan RHI ⏸️ · M7 materyal & doku ✅ · M8 sahne grafı & prefab ✅ · M9 animasyon ✅ ·
+**M10 ışık & gölge ✅** · M11 karakter & navigasyon · M12 ses & partikül & post

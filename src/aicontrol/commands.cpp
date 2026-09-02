@@ -185,14 +185,32 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             scene.resolve_gpu_meshes();
             return ok(id);
         }
-        if (method == "light.set") {
+        if (method == "light.set" || method == "light.add") {
             std::string name = p.value("name", std::string("sun"));
+            std::string type = p.value("type", std::string());
             auto e = scene.find(name);
             if (e == entt::null) e = scene.create(name);
-            auto& dl = scene.registry.get_or_emplace<DirectionalLight>(e);
-            dl.direction = v3(p.value("direction", json()), dl.direction);
-            dl.color = v3(p.value("color", json()), dl.color);
-            dl.intensity = p.value("intensity", dl.intensity);
+
+            bool want_punctual = (type == "point" || type == "spot") ||
+                                 (type.empty() && scene.registry.all_of<PunctualLight>(e));
+            if (want_punctual) {
+                auto& pl = scene.registry.get_or_emplace<PunctualLight>(e);
+                if (type == "spot") pl.spot = true;
+                if (type == "point") pl.spot = false;
+                pl.color = v3(p.value("color", json()), pl.color);
+                pl.intensity = p.value("intensity", pl.intensity);
+                pl.range = p.value("range", pl.range);
+                pl.direction = v3(p.value("direction", json()), pl.direction);
+                pl.inner_deg = p.value("inner_deg", pl.inner_deg);
+                pl.outer_deg = p.value("outer_deg", pl.outer_deg);
+                if (p.contains("position"))
+                    apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
+            } else {
+                auto& dl = scene.registry.get_or_emplace<DirectionalLight>(e);
+                dl.direction = v3(p.value("direction", json()), dl.direction);
+                dl.color = v3(p.value("color", json()), dl.color);
+                dl.intensity = p.value("intensity", dl.intensity);
+            }
             return ok(id, {{"name", scene.registry.get<Name>(e).value}});
         }
         if (method == "camera.set") {

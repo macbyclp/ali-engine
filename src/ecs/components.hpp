@@ -82,6 +82,18 @@ struct DirectionalLight {
     float intensity = 1.0f;
 };
 
+// Point / spot light. Position comes from WorldTransform. For spot, `direction`
+// is the cone axis and inner/outer_deg the soft-edge cone half-angles.
+struct PunctualLight {
+    bool spot = false;
+    glm::vec3 color{1.0f};
+    float intensity = 5.0f;
+    float range = 12.0f;
+    glm::vec3 direction{0.0f, -1.0f, 0.0f};
+    float inner_deg = 20.0f;
+    float outer_deg = 30.0f;
+};
+
 // Physics body. Shape defaults are derived from MeshRenderer::primitive + Transform::scale
 // when not given explicitly. handle/registered are runtime-only (not serialized).
 struct RigidBody {

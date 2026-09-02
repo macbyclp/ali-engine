@@ -47,7 +47,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `animation.play` | `{name, clip?, speed?, loop?, restart?}` | — |
 | `animation.pause` / `animation.stop` | `{name}` | — |
 | `animation.list` | `{name}` | `{clips:[...]}` |
-| `light.set` | `{name?, direction?, color?, intensity?}` | `{name}` |
+| `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |
 | `world.step` | `{dt?, steps?, substeps?}` | `{stepped, dt}` — simülasyonu N adım ilerlet |
