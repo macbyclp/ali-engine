@@ -153,6 +153,22 @@ struct ParticleEmitter {
     std::vector<Particle> particles;
 };
 
+// Screen-space UI. pos/size are normalized (0..1) relative to `anchor`.
+struct UIElement {
+    std::string kind = "panel";       // panel | text | bar
+    std::string anchor = "top-left";  // top-left | top-right | top | center | bottom-left | ...
+    glm::vec2 pos{0.04f, 0.04f};
+    glm::vec2 size{0.25f, 0.09f};
+    glm::vec4 color{0.0f, 0.0f, 0.0f, 0.55f};
+    glm::vec4 fill_color{0.30f, 0.80f, 0.45f, 1.0f};
+    std::string text;
+    float text_size = 22.0f;
+    glm::vec4 text_color{1.0f, 1.0f, 1.0f, 1.0f};
+    float value = 1.0f;               // bar fill 0..1
+    bool visible = true;
+    int order = 0;
+};
+
 // The active view. One entity in the scene carries this.
 struct CameraComp {
     glm::vec3 position{0, 2, 6};

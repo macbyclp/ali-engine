@@ -3,6 +3,7 @@
 #include "render/framebuffer.hpp"
 #include "render/shader.hpp"
 #include "scene/scene.hpp"
+#include "ui/font.hpp"
 #include <memory>
 
 namespace eng {
@@ -27,20 +28,25 @@ public:
 
 private:
     Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
+    Shader ui_solid_, ui_text_;
     std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
     Framebuffer shadow_map_;
+    std::unique_ptr<Font> font_;
     unsigned empty_vao_ = 0;
     unsigned draw_vao_ = 0;
     unsigned instance_vbo_ = 0;
     size_t instance_capacity_ = 0;
     unsigned particle_vao_ = 0, particle_vbo_ = 0;
     size_t particle_capacity_ = 0;
+    unsigned ui_vao_ = 0, ui_vbo_ = 0;
+    size_t ui_capacity_ = 0;
     JobSystem jobs_;
     RenderStats stats_;
 
     void ensure_hdr(int w, int h);
     void ensure_instances(size_t bytes);
     void bloom_pass(int w, int h);
+    void ui_pass(Scene& scene, int w, int h);
 };
 
 } // namespace eng

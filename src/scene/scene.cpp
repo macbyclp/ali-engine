@@ -147,6 +147,23 @@ void Scene::load_json(const json& j) {
                 em.end_color = {jp["end_color"][0], jp["end_color"][1], jp["end_color"][2], jp["end_color"][3]};
             registry.emplace<ParticleEmitter>(e, em);
         }
+        if (je.contains("ui")) {
+            const auto& ju = je["ui"];
+            UIElement ui;
+            ui.kind = ju.value("kind", ui.kind);
+            ui.anchor = ju.value("anchor", ui.anchor);
+            if (ju.contains("pos") && ju["pos"].size() == 2)
+                ui.pos = {ju["pos"][0].get<float>(), ju["pos"][1].get<float>()};
+            if (ju.contains("size") && ju["size"].size() == 2)
+                ui.size = {ju["size"][0].get<float>(), ju["size"][1].get<float>()};
+            if (ju.contains("color") && ju["color"].size() == 4)
+                ui.color = {ju["color"][0], ju["color"][1], ju["color"][2], ju["color"][3]};
+            ui.text = ju.value("text", ui.text);
+            ui.text_size = ju.value("text_size", ui.text_size);
+            ui.value = ju.value("value", ui.value);
+            ui.order = ju.value("order", ui.order);
+            registry.emplace<UIElement>(e, ui);
+        }
         if (je.contains("character")) {
             const auto& jc = je["character"];
             CharacterController cc;
@@ -250,6 +267,16 @@ json Scene::to_json() const {
         if (auto* cc = registry.try_get<CharacterController>(e)) {
             je["character"] = {{"radius", cc->radius}, {"height", cc->height},
                                {"move_speed", cc->move_speed}, {"jump_speed", cc->jump_speed}};
+        }
+        if (auto* ui = registry.try_get<UIElement>(e)) {
+            je["ui"] = {
+                {"kind", ui->kind}, {"anchor", ui->anchor},
+                {"pos", json::array({ui->pos.x, ui->pos.y})},
+                {"size", json::array({ui->size.x, ui->size.y})},
+                {"color", json::array({ui->color.x, ui->color.y, ui->color.z, ui->color.w})},
+                {"text", ui->text}, {"text_size", ui->text_size},
+                {"value", ui->value}, {"order", ui->order},
+            };
         }
         if (auto* em = registry.try_get<ParticleEmitter>(e)) {
             je["particles"] = {

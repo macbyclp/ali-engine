@@ -19,6 +19,7 @@ public:
     void set(const char* n, float v) const;
     void set(const char* n, const glm::vec2& v) const;
     void set(const char* n, const glm::vec3& v) const;
+    void set(const char* n, const glm::vec4& v) const;
     void set(const char* n, const glm::mat3& v) const;
     void set(const char* n, const glm::mat4& v) const;
     unsigned id() const { return prog_; }

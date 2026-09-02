@@ -57,6 +57,8 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `particles.stop` | `{name}` | — |
 | `audio.play` | `{file, volume?, loop?, spatial?, position?}` | `{handle}` |
 | `audio.stop` | `{handle}` | — |
+| `ui.add` / `ui.set` | `{name, kind?, anchor?, pos?, size?, color?, fill_color?, text?, text_size?, text_color?, value?, visible?, order?}` | `{name}` |
+| `ui.remove` | `{name}` | — |
 | `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |
@@ -97,6 +99,12 @@ glTF yüklenince dosyanın materyali otomatik gelir; verdiğin alanlar üzerine 
 `entity.spawn {primitive: "skinned", gltf_path: "<.glb|.gltf>" veya "builtin:bendbar",
 animation: {clip, speed?, loop?}}`. glTF skin + klipleri otomatik yüklenir. Sonra
 `animation.play/pause/stop`, `animation.list` ile klip adları.
+
+### UI (`kind`)
+`panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),
+`bar` (arka + `value` 0..1 kadar `fill_color` dolgu + metin). `anchor`: `top-left`,
+`top-right`, `top`, `center`, `bottom-left`, `bottom-right`, `bottom` vb. `pos`/`size`
+normalize (0..1); `pos` anchor kenarından içe kaçıklık. `order` çizim sırası.
 
 ### Fizik (`body`)
 `entity.spawn`/`entity.setBody` içinde: `{type: "static"|"dynamic"|"kinematic",

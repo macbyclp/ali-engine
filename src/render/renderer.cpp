@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -328,6 +329,37 @@ void main() {
 }
 )";
 
+static const char* kUiSolidVert = R"(
+layout(location=0) in vec2 aPos;
+uniform vec2 uScreen;
+void main() {
+    vec2 p = aPos / uScreen * 2.0 - 1.0;
+    gl_Position = vec4(p.x, -p.y, 0.0, 1.0);
+}
+)";
+static const char* kUiSolidFrag = R"(
+uniform vec4 uColor;
+out vec4 FragColor;
+void main() { FragColor = uColor; }
+)";
+static const char* kUiTextVert = R"(
+layout(location=0) in vec4 aPosUV;
+uniform vec2 uScreen;
+out vec2 vUV;
+void main() {
+    vec2 p = aPosUV.xy / uScreen * 2.0 - 1.0;
+    gl_Position = vec4(p.x, -p.y, 0.0, 1.0);
+    vUV = aPosUV.zw;
+}
+)";
+static const char* kUiTextFrag = R"(
+in vec2 vUV;
+uniform sampler2D uAtlas;
+uniform vec4 uColor;
+out vec4 FragColor;
+void main() { FragColor = vec4(uColor.rgb, uColor.a * texture(uAtlas, vUV).r); }
+)";
+
 // ---------------- frustum ----------------
 struct Frustum {
     glm::vec4 planes[6];
@@ -379,6 +411,8 @@ Renderer::Renderer(int w, int h)
       bright_(kFsVert, kBrightFrag),
       blur_(kFsVert, kBlurFrag),
       particle_(kParticleVert, kParticleFrag),
+      ui_solid_(kUiSolidVert, kUiSolidFrag),
+      ui_text_(kUiTextVert, kUiTextFrag),
       shadow_map_(4096, 4096, ColorFormat::None, true) {
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
@@ -386,6 +420,18 @@ Renderer::Renderer(int w, int h)
     glCreateVertexArrays(1, &empty_vao_);
     glCreateVertexArrays(1, &particle_vao_);
     glCreateBuffers(1, &particle_vbo_);
+    glCreateVertexArrays(1, &ui_vao_);
+    glCreateBuffers(1, &ui_vbo_);
+    glEnableVertexArrayAttrib(ui_vao_, 0);
+    glVertexArrayAttribFormat(ui_vao_, 0, 4, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(ui_vao_, 0, 0);
+
+    const char* candidates[] = {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf",
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
+    for (const char* c : candidates) {
+        font_ = std::make_unique<Font>(c, 48.0f);
+        if (font_->ok()) break;
+    }
 
     glCreateVertexArrays(1, &draw_vao_);
     glCreateBuffers(1, &instance_vbo_);
@@ -436,9 +482,98 @@ Renderer::Renderer(int w, int h)
 Renderer::~Renderer() {
     if (instance_vbo_) glDeleteBuffers(1, &instance_vbo_);
     if (particle_vbo_) glDeleteBuffers(1, &particle_vbo_);
+    if (ui_vbo_) glDeleteBuffers(1, &ui_vbo_);
     if (draw_vao_) glDeleteVertexArrays(1, &draw_vao_);
     if (particle_vao_) glDeleteVertexArrays(1, &particle_vao_);
+    if (ui_vao_) glDeleteVertexArrays(1, &ui_vao_);
     if (empty_vao_) glDeleteVertexArrays(1, &empty_vao_);
+}
+
+void Renderer::ui_pass(Scene& scene, int w, int h) {
+    std::vector<std::tuple<int, uint32_t>> order;
+    for (auto [e, ui] : scene.registry.view<UIElement>().each())
+        if (ui.visible) order.emplace_back(ui.order, (uint32_t)e);
+    if (order.empty()) return;
+    std::sort(order.begin(), order.end());
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glm::vec2 screen{(float)w, (float)h};
+
+    auto anchor_origin = [&](const std::string& a, glm::vec2 sz) -> glm::vec2 {
+        float ox = 0, oy = 0;
+        if (a.find("right") != std::string::npos) ox = w - sz.x;
+        else if (a.find("left") == std::string::npos) ox = (w - sz.x) * 0.5f;   // center/top/bottom
+        if (a.find("bottom") != std::string::npos) oy = h - sz.y;
+        else if (a.find("top") == std::string::npos) oy = (h - sz.y) * 0.5f;
+        return {ox, oy};
+    };
+
+    auto quad = [&](float x0, float y0, float x1, float y1, const glm::vec4& col) {
+        float v[12] = {x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1};
+        // pad to vec4 stride (pos.xy, 0, 0)
+        glm::vec4 buf[6];
+        for (int i = 0; i < 6; ++i) buf[i] = {v[i * 2], v[i * 2 + 1], 0, 0};
+        if (ui_capacity_ < sizeof(buf)) {
+            ui_capacity_ = 1 << 16;
+            glNamedBufferData(ui_vbo_, ui_capacity_, nullptr, GL_DYNAMIC_DRAW);
+        }
+        glNamedBufferSubData(ui_vbo_, 0, sizeof(buf), buf);
+        glVertexArrayVertexBuffer(ui_vao_, 0, ui_vbo_, 0, sizeof(glm::vec4));
+        ui_solid_.use();
+        ui_solid_.set("uScreen", screen);
+        ui_solid_.set("uColor", col);
+        glBindVertexArray(ui_vao_);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    };
+
+    auto draw_text = [&](const std::string& s, float x, float y, float px, const glm::vec4& col) {
+        if (!font_ || !font_->ok() || s.empty()) return;
+        std::vector<glm::vec4> verts;
+        font_->layout(s, x, y, px / 48.0f, verts);
+        if (verts.empty()) return;
+        size_t bytes = verts.size() * sizeof(glm::vec4);
+        if (ui_capacity_ < bytes) { ui_capacity_ = bytes * 2; glNamedBufferData(ui_vbo_, ui_capacity_, nullptr, GL_DYNAMIC_DRAW); }
+        glNamedBufferSubData(ui_vbo_, 0, bytes, verts.data());
+        glVertexArrayVertexBuffer(ui_vao_, 0, ui_vbo_, 0, sizeof(glm::vec4));
+        ui_text_.use();
+        ui_text_.set("uScreen", screen);
+        ui_text_.set("uColor", col);
+        glBindTextureUnit(0, font_->texture());
+        ui_text_.set("uAtlas", 0);
+        glBindVertexArray(ui_vao_);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size());
+    };
+
+    for (auto& [ord, eid] : order) {
+        const UIElement& ui = scene.registry.get<UIElement>((entt::entity)eid);
+        glm::vec2 sz{ui.size.x * w, ui.size.y * h};
+        glm::vec2 o = anchor_origin(ui.anchor, sz);
+        float sx = (ui.anchor.find("right") != std::string::npos) ? -1.0f : 1.0f;
+        float sy = (ui.anchor.find("bottom") != std::string::npos) ? -1.0f : 1.0f;
+        float x0 = o.x + sx * ui.pos.x * w, y0 = o.y + sy * ui.pos.y * h;
+        float x1 = x0 + sz.x, y1 = y0 + sz.y;
+
+        if (ui.kind == "panel") {
+            quad(x0, y0, x1, y1, ui.color);
+        } else if (ui.kind == "bar") {
+            quad(x0, y0, x1, y1, ui.color);
+            float f = glm::clamp(ui.value, 0.0f, 1.0f);
+            quad(x0 + 2, y0 + 2, x0 + 2 + (sz.x - 4) * f, y1 - 2, ui.fill_color);
+        }
+        if (!ui.text.empty()) {
+            float tw = font_ ? font_->measure(ui.text, ui.text_size / 48.0f) : 0.0f;
+            float tx = (ui.kind == "text") ? x0 : x0 + std::max(6.0f, (sz.x - tw) * 0.5f);
+            float ty = (ui.kind == "text") ? y0 : y0 + (sz.y - ui.text_size) * 0.5f;
+            draw_text(ui.text, tx, ty, ui.text_size, ui.text_color);
+        }
+    }
+
+    glDisable(GL_BLEND);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
 }
 
 void Renderer::ensure_hdr(int w, int h) {
@@ -748,6 +883,8 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
+
+    ui_pass(scene, w, h);
 
     auto t1 = std::chrono::high_resolution_clock::now();
     stats_.cpu_ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
