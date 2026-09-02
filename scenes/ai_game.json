@@ -1,0 +1,129 @@
+{
+  "entities": [
+    {
+      "behavior": [
+        {
+          "do": [
+            {
+              "action": "impulse",
+              "impulse": [
+                3,
+                2,
+                0
+              ]
+            },
+            {
+              "action": "log",
+              "message": "enemy spawned"
+            }
+          ],
+          "on": "start"
+        },
+        {
+          "do": [
+            {
+              "action": "addState",
+              "key": "score",
+              "value": 10
+            },
+            {
+              "action": "setColor",
+              "color": [
+                0.3,
+                0.9,
+                0.4
+              ]
+            },
+            {
+              "action": "emit",
+              "event": "hit"
+            }
+          ],
+          "on": "collision",
+          "with": "arena"
+        },
+        {
+          "do": [
+            {
+              "action": "timer",
+              "after": 1.5,
+              "event": "respawn"
+            }
+          ],
+          "name": "hit",
+          "on": "event"
+        }
+      ],
+      "body": {
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.4000000059604645,
+        "type": "dynamic"
+      },
+      "mesh": {
+        "base_color": [
+          0.8999999761581421,
+          0.30000001192092896,
+          0.25
+        ],
+        "metallic": 0.0,
+        "primitive": "sphere",
+        "roughness": 0.800000011920929
+      },
+      "name": "enemy",
+      "transform": {
+        "position": [
+          0.0,
+          4.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "body": {
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "type": "static"
+      },
+      "mesh": {
+        "base_color": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ],
+        "metallic": 0.0,
+        "primitive": "plane",
+        "roughness": 0.800000011920929
+      },
+      "name": "arena",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          12.0,
+          1.0,
+          12.0
+        ]
+      }
+    }
+  ]
+}

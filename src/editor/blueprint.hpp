@@ -27,6 +27,7 @@ private:
         int id;
         std::string kind;          // "on.start" | "act.impulse" | ...
         ImVec2 pos;
+        bool placed = false;       // has ed::SetNodePosition been applied?
         nlohmann::json params;
         std::vector<Pin> pins;
         int in_exec = -1, out_exec = -1;

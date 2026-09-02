@@ -82,8 +82,7 @@ BlueprintEditor::Node& BlueprintEditor::add_node(const std::string& kind, ImVec2
     n.out_exec = nid();
     n.pins.push_back({n.out_exec, false, true, "out"});
     nodes_.push_back(std::move(n));
-    ed::SetNodePosition(nodes_.back().id, pos);
-    return nodes_.back();
+    return nodes_.back();   // position applied in draw(), once the editor is current
 }
 
 int BlueprintEditor::out_link_target(int pin) const {
@@ -208,10 +207,7 @@ void BlueprintEditor::context_menu() {
                 cat = s.category;
                 if (!ImGui::BeginMenu(cat)) { cat = nullptr; continue; }
             }
-            if (ImGui::MenuItem(s.label)) {
-                Node& n = add_node(kind, mouse);
-                ed::SetNodePosition(n.id, mouse);
-            }
+            if (ImGui::MenuItem(s.label)) add_node(kind, mouse);   // placed in draw()
         }
         if (cat) ImGui::EndMenu();
         ImGui::EndPopup();
@@ -229,14 +225,18 @@ void BlueprintEditor::draw(CommandContext& ctx, const std::string& target) {
         dispatch(ctx, {{"method", "behavior.set"}, {"params", {{"name", target}, {"behaviors", rules}}}});
     }
     ImGui::SameLine();
+    if (ImGui::Button("Reload") && !target.empty()) { target_.clear(); load_from_behavior(ctx, target); }
+    ImGui::SameLine();
     if (ImGui::Button("Clear")) { nodes_.clear(); links_.clear(); }
     ImGui::SameLine();
-    ImGui::TextDisabled("right-click: add node   drag pins: wire   Del: remove");
+    ImGui::TextDisabled("right-click: add node   drag pins: wire   Del: remove   ·   graph = %s's Behavior",
+                        target.empty() ? "?" : target.c_str());
 
     ed::SetCurrentEditor(ctx_);
     ed::Begin("bp", ImVec2(0, 0));
 
     for (Node& n : nodes_) {
+        if (!n.placed) { ed::SetNodePosition(n.id, n.pos); n.placed = true; }
         ed::BeginNode(n.id);
         const Spec* s = spec_of(n.kind);
         ImGui::PushStyleColor(ImGuiCol_Text, is_event(n.kind) ? ImVec4(1, 0.55f, 0.4f, 1)
