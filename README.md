@@ -3,6 +3,9 @@
 C++17 3D oyun motoru. Tek kod tabanı → **native** (Windows/Linux/macOS, OpenGL 3.3)
 ve **web** (WebAssembly + WebGL2, Emscripten).
 
+## Durum
+✅ Native build çalışıyor (MSVC, VS 2022 generator). `game.exe` açılıyor, render döngüsü dönüyor.
+
 ## Şu an ne var
 - GLFW pencere + GL context (native: glad, web: Emscripten)
 - Sabit-adımlı oyun döngüsü (60 Hz update, serbest render) — `src/engine/app.cpp`
@@ -20,14 +23,17 @@ winget install Kitware.CMake Microsoft.VisualStudio.2022.BuildTools Ninja-build.
 ```
 Build Tools kurulumunda **"Desktop development with C++"** işaretle.
 
-## Native build
+## Native build (Windows, doğrulanmış yol)
+glad kod üreteci Python + `jinja2` ister:
 ```
-cmake -B build -G Ninja
-cmake --build build
-./build/game
+py -m pip install jinja2
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug
+build\Debug\game.exe
 ```
-(Ninja yoksa `-G Ninja` yerine varsayılan Visual Studio generator kullanılır:
-`cmake -B build` → `cmake --build build --config Debug`, çıktı `build/Debug/game.exe`.)
+Not: Ninja generator bu makinede `CMAKE_C_COMPILE_OBJECT` hatası verdi; VS generator sorunsuz.
+Linkte zararsız `LNK4098 LIBCMT` uyarısı var (glad statik CRT) — sonra MSVC runtime'ı
+hizalayınca gider.
 
 ## Web build (sonra)
 ```
