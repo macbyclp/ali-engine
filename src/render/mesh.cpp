@@ -6,6 +6,16 @@ namespace eng {
 
 Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
     count_ = static_cast<int>(indices.size());
+
+    glm::vec3 lo(1e9f), hi(-1e9f);
+    for (const auto& v : verts) { lo = glm::min(lo, v.pos); hi = glm::max(hi, v.pos); }
+    if (!verts.empty()) {
+        bc_ = 0.5f * (lo + hi);
+        float r = 0.0f;
+        for (const auto& v : verts) r = glm::max(r, glm::length(v.pos - bc_));
+        br_ = r;
+    }
+
     glCreateVertexArrays(1, &vao_);
     glCreateBuffers(1, &vbo_);
     glCreateBuffers(1, &ebo_);

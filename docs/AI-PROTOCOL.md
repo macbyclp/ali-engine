@@ -53,6 +53,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `behavior.get` | `{name}` | `{rules}` |
 | `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
+| `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
 | `quit` | — | — |
 
 ### Davranış (`behavior`)

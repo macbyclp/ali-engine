@@ -2,6 +2,7 @@
 #include "assets/gltf.hpp"
 #include "core/log.hpp"
 #include <fstream>
+#include <unordered_map>
 
 using nlohmann::json;
 
@@ -188,14 +189,27 @@ bool Scene::save_file(const std::string& path) const {
     return true;
 }
 
+// Shared mesh cache so identical primitives/models resolve to the SAME GPU mesh.
+// This is what lets the renderer batch them into one instanced draw call.
+static std::shared_ptr<Mesh>& cache_slot(const std::string& key) {
+    static std::unordered_map<std::string, std::shared_ptr<Mesh>> cache;
+    return cache[key];
+}
+
 void Scene::resolve_gpu_meshes() {
     for (auto [e, mr] : registry.view<MeshRenderer>().each()) {
-        if (mr.primitive == "cube") mr.gpu = Mesh::cube();
-        else if (mr.primitive == "sphere") mr.gpu = Mesh::sphere();
-        else if (mr.primitive == "plane") mr.gpu = Mesh::plane();
-        else if (mr.primitive == "gltf" && !mr.gltf_path.empty())
-            mr.gpu = load_gltf_mesh(mr.gltf_path);
-        else mr.gpu = Mesh::cube();
+        std::string key = mr.primitive;
+        if (mr.primitive == "gltf") key = "gltf:" + mr.gltf_path;
+
+        auto& slot = cache_slot(key);
+        if (!slot) {
+            if (mr.primitive == "sphere") slot = Mesh::sphere();
+            else if (mr.primitive == "plane") slot = Mesh::plane();
+            else if (mr.primitive == "gltf" && !mr.gltf_path.empty())
+                slot = load_gltf_mesh(mr.gltf_path);
+            if (!slot) slot = Mesh::cube();
+        }
+        mr.gpu = slot;
     }
 }
 
