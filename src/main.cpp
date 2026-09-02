@@ -28,8 +28,8 @@ int main(int argc, char** argv) {
     }
 
     eng::Window window(width, height, "ali-engine", headless);
-    eng::Renderer renderer;
-    eng::Framebuffer offscreen(width, height);
+    eng::Renderer renderer(width, height);
+    eng::Framebuffer offscreen(width, height, eng::ColorFormat::RGBA8, false);
     eng::Scene scene;
 
     if (!scene_path.empty()) scene.load_file(scene_path);
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
         }
 
         if (!headless) {
-            renderer.render(scene, window.width(), window.height());
+            renderer.render(scene, 0, window.width(), window.height());
             window.swap();
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
