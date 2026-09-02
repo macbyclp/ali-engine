@@ -21,12 +21,11 @@ static void locate(const std::vector<float>& times, float t, int& i0, int& i1, f
     a = span > 1e-6f ? (t - times[i0]) / span : 0.0f;
 }
 
-void sample_pose(const Skeleton& sk, const AnimationClip& clip, float t,
-                 std::vector<glm::mat4>& out) {
+void sample_local(const Skeleton& sk, const AnimationClip& clip, float t,
+                  std::vector<JointPose>& out) {
     size_t n = sk.size();
-    std::vector<glm::vec3> lt = sk.bind_t;
-    std::vector<glm::quat> lr = sk.bind_r;
-    std::vector<glm::vec3> ls = sk.bind_s;
+    out.resize(n);
+    for (size_t j = 0; j < n; ++j) out[j] = {sk.bind_t[j], sk.bind_r[j], sk.bind_s[j]};
 
     float ct = clip.duration > 0.0f ? std::fmod(t, clip.duration) : 0.0f;
     for (const AnimChannel& ch : clip.channels) {
@@ -36,23 +35,32 @@ void sample_pose(const Skeleton& sk, const AnimationClip& clip, float t,
         if (ch.path == 1) {
             glm::quat q0(ch.values[i0].w, ch.values[i0].x, ch.values[i0].y, ch.values[i0].z);
             glm::quat q1(ch.values[i1].w, ch.values[i1].x, ch.values[i1].y, ch.values[i1].z);
-            lr[ch.joint] = glm::normalize(glm::slerp(q0, q1, a));
+            out[ch.joint].r = glm::normalize(glm::slerp(q0, q1, a));
         } else {
-            glm::vec3 v0(ch.values[i0]), v1(ch.values[i1]);
-            glm::vec3 v = glm::mix(v0, v1, a);
-            if (ch.path == 0) lt[ch.joint] = v; else ls[ch.joint] = v;
+            glm::vec3 v = glm::mix(glm::vec3(ch.values[i0]), glm::vec3(ch.values[i1]), a);
+            if (ch.path == 0) out[ch.joint].t = v; else out[ch.joint].s = v;
         }
     }
+}
 
+void compose_pose(const Skeleton& sk, const std::vector<JointPose>& local,
+                  std::vector<glm::mat4>& out) {
+    size_t n = sk.size();
     std::vector<glm::mat4> global(n);
     for (size_t j = 0; j < n; ++j) {
-        glm::mat4 local = trs(lt[j], lr[j], ls[j]);
+        glm::mat4 m = trs(local[j].t, local[j].r, local[j].s);
         int p = sk.parents[j];
-        global[j] = (p >= 0 && (size_t)p < n) ? global[p] * local : local;
+        global[j] = (p >= 0 && (size_t)p < n) ? global[p] * m : m;
     }
-
     out.resize(n);
     for (size_t j = 0; j < n; ++j) out[j] = global[j] * sk.inverse_bind[j];
+}
+
+void sample_pose(const Skeleton& sk, const AnimationClip& clip, float t,
+                 std::vector<glm::mat4>& out) {
+    std::vector<JointPose> local;
+    sample_local(sk, clip, t, local);
+    compose_pose(sk, local, out);
 }
 
 std::shared_ptr<SkinnedModel> builtin_skinned(const std::string& name) {

@@ -44,7 +44,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `entity.setParent` | `{name, parent}` (boş parent = ayır) | — |
 | `prefab.save` | `{root, path}` | `{path, entities}` |
 | `prefab.instantiate` | `{path, name, position?}` | `{created:[...]}` |
-| `animation.play` | `{name, clip?, speed?, loop?, restart?}` | — |
+| `animation.play` | `{name, clip?, speed?, loop?, restart?, fade?}` | — (`fade` sn → önceki klipten crossfade) |
 | `animation.pause` / `animation.stop` | `{name}` | — |
 | `animation.list` | `{name}` | `{clips:[...]}` |
 | `character.create` | `{name, position?, radius?, height?, move_speed?, jump_speed?, base_color?}` | — |

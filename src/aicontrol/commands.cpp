@@ -243,7 +243,17 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto& ap = scene.registry.get_or_emplace<AnimationPlayer>(e);
-            if (p.contains("clip")) ap.clip = p["clip"].get<std::string>();
+            float fade = p.value("fade", 0.0f);
+            if (p.contains("clip")) {
+                std::string next = p["clip"].get<std::string>();
+                if (fade > 0.0f && next != ap.clip) {
+                    ap.prev_clip = ap.clip;
+                    ap.prev_time = ap.time;
+                    ap.fade_left = fade;
+                    ap.fade_dur = fade;
+                }
+                ap.clip = next;
+            }
             ap.speed = p.value("speed", ap.speed);
             ap.loop = p.value("loop", ap.loop);
             ap.playing = true;

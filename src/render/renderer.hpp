@@ -27,10 +27,13 @@ public:
     const RenderStats& stats() const { return stats_; }
 
 private:
+    static constexpr int kCascades = 3;
+
     Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
     Shader ui_solid_, ui_text_;
     std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
-    Framebuffer shadow_map_;
+    unsigned csm_fbo_ = 0, csm_tex_ = 0;
+    int csm_size_ = 2048;
     std::unique_ptr<Font> font_;
     unsigned empty_vao_ = 0;
     unsigned draw_vao_ = 0;
