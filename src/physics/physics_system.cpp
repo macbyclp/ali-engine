@@ -1,8 +1,19 @@
 #include "physics/physics_system.hpp"
+#include "scene/transform_system.hpp"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+namespace {
+// world matrix -> (position, rotation), ignoring scale/shear
+inline void decompose(const glm::mat4& m, glm::vec3& pos, glm::quat& rot) {
+    pos = glm::vec3(m[3]);
+    glm::mat3 r{glm::normalize(glm::vec3(m[0])), glm::normalize(glm::vec3(m[1])),
+               glm::normalize(glm::vec3(m[2]))};
+    rot = glm::quat_cast(r);
+}
+}
 
 namespace eng {
 
@@ -12,27 +23,27 @@ static BodyType parse_type(const std::string& s) {
     return BodyType::Dynamic;
 }
 
-static BodyDesc describe(const Transform& t, const RigidBody& rb, const MeshRenderer* mr) {
+static BodyDesc describe(const glm::mat4& world, const RigidBody& rb, const MeshRenderer* mr) {
     BodyDesc d;
     d.type = parse_type(rb.type);
     d.mass = rb.mass;
     d.restitution = rb.restitution;
     d.friction = rb.friction;
-    d.position = t.position;
-    d.rotation = glm::quat(glm::radians(t.euler_deg));
+    decompose(world, d.position, d.rotation);
+
+    glm::vec3 scale{glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])),
+                    glm::length(glm::vec3(world[2]))};
 
     std::string shape = rb.shape;
-    if (shape.empty() && mr) {
-        if (mr->primitive == "sphere") shape = "sphere";
-        else shape = "box";   // cube, plane, gltf -> box proxy
-    }
+    if (shape.empty() && mr) shape = (mr->primitive == "sphere") ? "sphere" : "box";
+
     if (shape == "sphere") {
         d.shape = "sphere";
-        d.radius = 0.5f * glm::max(t.scale.x, glm::max(t.scale.y, t.scale.z));
+        d.radius = 0.5f * glm::max(scale.x, glm::max(scale.y, scale.z));
     } else {
         d.shape = "box";
-        glm::vec3 h = 0.5f * glm::abs(t.scale);
-        if (mr && mr->primitive == "plane") h = glm::vec3(glm::abs(t.scale.x), 0.05f, glm::abs(t.scale.z));
+        glm::vec3 h = 0.5f * glm::abs(scale);
+        if (mr && mr->primitive == "plane") h = glm::vec3(glm::abs(scale.x), 0.05f, glm::abs(scale.z));
         d.half_extents = h;
     }
     return d;
@@ -40,12 +51,13 @@ static BodyDesc describe(const Transform& t, const RigidBody& rb, const MeshRend
 
 void PhysicsSystem::sync(Scene& scene) {
     auto& reg = scene.registry;
+    update_world_transforms(scene);
 
     // create bodies for new RigidBody components
-    for (auto [e, t, rb] : reg.view<Transform, RigidBody>().each()) {
+    for (auto [e, wt, rb] : reg.view<WorldTransform, RigidBody>().each()) {
         if (rb.registered) continue;
         const MeshRenderer* mr = reg.try_get<MeshRenderer>(e);
-        rb.handle = world_.add_body(describe(t, rb, mr));
+        rb.handle = world_.add_body(describe(wt.matrix, rb, mr));
         rb.registered = true;
         handle_to_entity_[rb.handle] = e;
     }

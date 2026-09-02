@@ -41,6 +41,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
 | `entity.setMaterial` | `{name, <material>}` | — |
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
+| `entity.setParent` | `{name, parent}` (boş parent = ayır) | — |
+| `prefab.save` | `{root, path}` | `{path, entities}` |
+| `prefab.instantiate` | `{path, name, position?}` | `{created:[...]}` |
 | `light.set` | `{name?, direction?, color?, intensity?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
 | `camera.get` | — | `{position, target, fov_deg}` |

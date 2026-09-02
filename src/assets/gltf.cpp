@@ -2,6 +2,8 @@
 #include "assets/texture.hpp"
 #include "core/log.hpp"
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <filesystem>
 #include <vector>
 
@@ -65,8 +67,24 @@ std::shared_ptr<Mesh> load_gltf_mesh(const std::string& path, GltfMaterial* out_
     std::vector<uint32_t> indices;
     const cgltf_material* material = nullptr;
 
-    for (cgltf_size m = 0; m < data->meshes_count && verts.empty(); ++m) {
+    // Build a mesh -> world-transform map by walking the node tree, so multi-part
+    // models keep their layout instead of collapsing every mesh to the origin.
+    std::vector<glm::mat4> mesh_xform(data->meshes_count, glm::mat4(1.0f));
+    std::vector<char> mesh_seen(data->meshes_count, 0);
+    for (cgltf_size i = 0; i < data->nodes_count; ++i) {
+        const cgltf_node& node = data->nodes[i];
+        if (!node.mesh) continue;
+        cgltf_size mi = cgltf_mesh_index(data, node.mesh);
+        float w[16];
+        cgltf_node_transform_world(&node, w);
+        mesh_xform[mi] = glm::make_mat4(w);
+        mesh_seen[mi] = 1;
+    }
+
+    for (cgltf_size m = 0; m < data->meshes_count; ++m) {
         const cgltf_mesh& mesh = data->meshes[m];
+        glm::mat4 xf = mesh_xform[m];
+        glm::mat3 nxf = glm::mat3(glm::inverseTranspose(xf));
         for (cgltf_size p = 0; p < mesh.primitives_count; ++p) {
             const cgltf_primitive& prim = mesh.primitives[p];
             if (prim.type != cgltf_primitive_type_triangles) continue;
@@ -87,10 +105,15 @@ std::shared_ptr<Mesh> load_gltf_mesh(const std::string& path, GltfMaterial* out_
             size_t n = pos.size() / 3;
             for (size_t i = 0; i < n; ++i) {
                 Vertex v;
-                v.pos = {pos[i*3], pos[i*3+1], pos[i*3+2]};
-                if (nrm.size() >= (i+1)*3) v.normal = {nrm[i*3], nrm[i*3+1], nrm[i*3+2]};
+                glm::vec3 p{pos[i*3], pos[i*3+1], pos[i*3+2]};
+                v.pos = glm::vec3(xf * glm::vec4(p, 1.0f));
+                if (nrm.size() >= (i+1)*3)
+                    v.normal = glm::normalize(nxf * glm::vec3(nrm[i*3], nrm[i*3+1], nrm[i*3+2]));
                 if (uv.size() >= (i+1)*2) v.uv = {uv[i*2], uv[i*2+1]};
-                if (tan.size() >= (i+1)*4) v.tangent = {tan[i*4], tan[i*4+1], tan[i*4+2], tan[i*4+3]};
+                if (tan.size() >= (i+1)*4) {
+                    glm::vec3 t = glm::normalize(glm::mat3(xf) * glm::vec3(tan[i*4], tan[i*4+1], tan[i*4+2]));
+                    v.tangent = glm::vec4(t, tan[i*4+3]);
+                }
                 verts.push_back(v);
             }
             if (prim.indices)

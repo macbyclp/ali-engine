@@ -14,6 +14,17 @@ struct Name {
     std::string value;
 };
 
+// Scene-graph link. parent is resolved from parent_name each hierarchy update.
+struct Hierarchy {
+    std::string parent_name;
+};
+
+// Resolved world-space transform, written by update_world_transforms() each frame.
+struct WorldTransform {
+    glm::mat4 matrix{1.0f};
+    glm::vec3 position{0.0f};
+};
+
 struct Transform {
     glm::vec3 position{0};
     glm::vec3 euler_deg{0};   // XYZ degrees
