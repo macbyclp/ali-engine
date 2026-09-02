@@ -73,6 +73,13 @@ struct AnimationPlayer {
     float speed = 1.0f;
     bool loop = true;
     bool playing = true;
+
+    // crossfade: while fade_left > 0, blend from prev_clip@prev_time into clip@time
+    std::string prev_clip;
+    float prev_time = 0.0f;
+    float fade_left = 0.0f;
+    float fade_dur = 0.0f;
+
     std::vector<glm::mat4> joint_matrices;
 };
 

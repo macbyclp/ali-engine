@@ -47,8 +47,22 @@ struct SkinnedModel {
     }
 };
 
-// Samples a clip at `t` (seconds) and returns the world joint matrices to skin with:
-// out[j] = globalPose(j) * inverseBind(j). `out` is resized to skeleton.size().
+struct JointPose {
+    glm::vec3 t{0};
+    glm::quat r{1, 0, 0, 0};
+    glm::vec3 s{1};
+};
+
+// Samples a clip's local per-joint TRS at time `t` (starts from the bind pose).
+void sample_local(const Skeleton& sk, const AnimationClip& clip, float t,
+                  std::vector<JointPose>& out);
+
+// Composes local poses through the hierarchy into skinning matrices:
+// out[j] = globalPose(j) * inverseBind(j).
+void compose_pose(const Skeleton& sk, const std::vector<JointPose>& local,
+                  std::vector<glm::mat4>& out);
+
+// Convenience: sample_local + compose_pose in one call.
 void sample_pose(const Skeleton& sk, const AnimationClip& clip, float t,
                  std::vector<glm::mat4>& out);
 

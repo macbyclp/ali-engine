@@ -96,13 +96,11 @@ layout(location=1) in vec3 aNormal;
 layout(location=2) in vec2 aUV;
 layout(location=3) in vec4 aTangent;
 uniform mat4 uViewProj;
-uniform mat4 uLightVP;
 out vec3 vWorld;
 out vec3 vN;
 out vec3 vT;
 out vec3 vB;
 out vec2 vUV;
-out vec4 vLightSpace;
 out vec3 vAlbedo;
 out float vRough;
 out float vMetallic;
@@ -125,7 +123,6 @@ void main() {
     vT = normalize(nm * tng);
     vB = cross(vN, vT) * aTangent.w;
     vUV = aUV * iMetalUV.yz;
-    vLightSpace = uLightVP * w;
     vAlbedo = iAlbedoRough.rgb;
     vRough = iAlbedoRough.a;
     vMetallic = iMetalUV.x;
@@ -139,7 +136,6 @@ in vec3 vN;
 in vec3 vT;
 in vec3 vB;
 in vec2 vUV;
-in vec4 vLightSpace;
 in vec3 vAlbedo;
 in float vRough;
 in float vMetallic;
@@ -150,7 +146,10 @@ uniform vec3 uCamPos;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSunIntensity;
-uniform sampler2DShadow uShadowMap;
+uniform sampler2DArrayShadow uShadowArray;
+uniform mat4 uCascadeVP[3];
+uniform float uCascadeSplit[3];
+uniform mat4 uView;
 uniform int uNumLights;
 uniform vec4 uLightPos[16];    // xyz position, w range
 uniform vec4 uLightColor[16];  // rgb color*intensity, w = spot ? 1 : 0
@@ -184,15 +183,22 @@ vec3 brdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float rough, float metallic, vec3
     return (kd * albedo / PI + spec) * NoL;
 }
 
-float shadowFactor(vec4 lsp, vec3 N, vec3 L) {
-    vec3 p = lsp.xyz / lsp.w; p = p*0.5+0.5;
+float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
+    float viewDepth = -(uView * vec4(worldPos, 1.0)).z;
+    int c = 2;
+    if (viewDepth < uCascadeSplit[0]) c = 0;
+    else if (viewDepth < uCascadeSplit[1]) c = 1;
+
+    vec4 lsp = uCascadeVP[c] * vec4(worldPos, 1.0);
+    vec3 p = lsp.xyz / lsp.w; p = p * 0.5 + 0.5;
     if (p.z > 1.0) return 1.0;
-    float bias = max(0.0025*(1.0-dot(N,L)), 0.0008);
+    float bias = max(0.0018 * (1.0 - dot(N, L)), 0.0006) * (c == 0 ? 1.0 : (c == 1 ? 2.0 : 4.0));
+    vec2 texel = 1.0 / vec2(textureSize(uShadowArray, 0).xy);
     float sh = 0.0;
-    vec2 texel = 1.0 / vec2(textureSize(uShadowMap,0));
-    for (int x=-1;x<=1;++x) for (int y=-1;y<=1;++y)
-        sh += texture(uShadowMap, vec3(p.xy + vec2(x,y)*texel, p.z - bias));
-    return sh/9.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            sh += texture(uShadowArray, vec4(p.xy + vec2(x, y) * texel, float(c), p.z - bias));
+    return sh / 9.0;
 }
 
 void main() {
@@ -217,7 +223,7 @@ void main() {
     float NoH = max(dot(N,H),0.0);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    float sh = shadowFactor(vLightSpace, N, L);
+    float sh = shadowFactor(vWorld, N, L);
     vec3 direct = brdf(N, V, L, albedo, rough, metallic, F0) * uSunColor * uSunIntensity * sh;
 
     for (int i = 0; i < uNumLights; ++i) {
@@ -412,8 +418,22 @@ Renderer::Renderer(int w, int h)
       blur_(kFsVert, kBlurFrag),
       particle_(kParticleVert, kParticleFrag),
       ui_solid_(kUiSolidVert, kUiSolidFrag),
-      ui_text_(kUiTextVert, kUiTextFrag),
-      shadow_map_(4096, 4096, ColorFormat::None, true) {
+      ui_text_(kUiTextVert, kUiTextFrag) {
+    // cascaded shadow map: one depth texture array, one FBO
+    glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &csm_tex_);
+    glTextureStorage3D(csm_tex_, 1, GL_DEPTH_COMPONENT32F, csm_size_, csm_size_, kCascades);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float border[4] = {1, 1, 1, 1};
+    glTextureParameterfv(csm_tex_, GL_TEXTURE_BORDER_COLOR, border);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTextureParameteri(csm_tex_, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glCreateFramebuffers(1, &csm_fbo_);
+    glNamedFramebufferDrawBuffer(csm_fbo_, GL_NONE);
+    glNamedFramebufferReadBuffer(csm_fbo_, GL_NONE);
+
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
     bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
@@ -480,6 +500,8 @@ Renderer::Renderer(int w, int h)
 }
 
 Renderer::~Renderer() {
+    if (csm_tex_) glDeleteTextures(1, &csm_tex_);
+    if (csm_fbo_) glDeleteFramebuffers(1, &csm_fbo_);
     if (instance_vbo_) glDeleteBuffers(1, &instance_vbo_);
     if (particle_vbo_) glDeleteBuffers(1, &particle_vbo_);
     if (ui_vbo_) glDeleteBuffers(1, &ui_vbo_);
@@ -701,10 +723,48 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     stats_.culled = stats_.entities - stats_.visible;
     ensure_instances(std::max<size_t>(items.size() * 2, 1) * sizeof(InstanceData));
 
-    glm::vec3 light_eye = center - sun_dir * (radius * 2.0f);
+    // ---- cascaded shadow maps: fit an ortho box to each view sub-frustum ----
     glm::vec3 up = std::abs(sun_dir.y) > 0.99f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-    glm::mat4 light_vp = glm::ortho(-radius, radius, -radius, radius, 0.1f, radius * 4.0f)
-                       * glm::lookAt(light_eye, center, up);
+    float cs_near = cam.near_z;
+    float cs_far = std::min(cam.far_z, std::max(40.0f, radius * 3.0f));
+    float splits[kCascades + 1];
+    splits[0] = cs_near;
+    for (int i = 1; i <= kCascades; ++i) {
+        float p = float(i) / kCascades;
+        float lg = cs_near * std::pow(cs_far / cs_near, p);
+        float ln = cs_near + (cs_far - cs_near) * p;
+        splits[i] = 0.7f * lg + 0.3f * ln;
+    }
+
+    glm::mat4 cascade_vp[kCascades];
+    float cascade_split_view[kCascades];
+    for (int c = 0; c < kCascades; ++c) {
+        cascade_split_view[c] = splits[c + 1];
+        glm::mat4 sub_proj = glm::perspective(glm::radians(cam.fov_deg), aspect, splits[c], splits[c + 1]);
+        glm::mat4 inv = glm::inverse(sub_proj * view);
+        glm::vec3 corners[8];
+        int k = 0;
+        for (int x = 0; x < 2; ++x)
+            for (int y = 0; y < 2; ++y)
+                for (int z = 0; z < 2; ++z) {
+                    glm::vec4 p = inv * glm::vec4(x ? 1.f : -1.f, y ? 1.f : -1.f, z ? 1.f : -1.f, 1.f);
+                    corners[k++] = glm::vec3(p) / p.w;
+                }
+        glm::vec3 cc(0);
+        for (auto& p : corners) cc += p;
+        cc /= 8.0f;
+        float r = 0.0f;
+        for (auto& p : corners) r = std::max(r, glm::length(p - cc));
+        r = std::ceil(r * 16.0f) / 16.0f;
+
+        glm::mat4 lview = glm::lookAt(cc - sun_dir * (r * 6.0f), cc, up);
+        glm::vec3 cls = glm::vec3(lview * glm::vec4(cc, 1.0f));
+        float tpu = csm_size_ / (2.0f * r);
+        cls.x = std::floor(cls.x * tpu) / tpu;
+        cls.y = std::floor(cls.y * tpu) / tpu;
+        glm::mat4 lproj = glm::ortho(cls.x - r, cls.x + r, cls.y - r, cls.y + r, r, r * 12.0f);
+        cascade_vp[c] = lproj * lview;
+    }
 
     GLintptr cursor = 0;
     auto upload = [&](const std::vector<InstanceData>& insts) -> GLintptr {
@@ -743,25 +803,32 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         }
     };
 
-    // pass 1: shadow
-    shadow_map_.bind();
-    glClear(GL_DEPTH_BUFFER_BIT);
+    // pass 1: shadow (one depth render per cascade)
+    glBindFramebuffer(GL_FRAMEBUFFER, csm_fbo_);
+    glViewport(0, 0, csm_size_, csm_size_);
     glEnable(GL_DEPTH_TEST);
     glCullFace(GL_FRONT);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.5f, 2.0f);
     shadow_.use();
-    shadow_.set("uLightVP", light_vp);
     shadow_.set("uSkinned", 0);
     glBindVertexArray(draw_vao_);
-    for (auto& [key, insts] : all_groups) {
-        if (insts.empty()) continue;
-        GLintptr at = upload(insts);
-        glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
-        glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
-        glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
-        glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
-                                nullptr, (GLsizei)insts.size());
+    for (int c = 0; c < kCascades; ++c) {
+        glNamedFramebufferTextureLayer(csm_fbo_, GL_DEPTH_ATTACHMENT, csm_tex_, 0, c);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        shadow_.set("uLightVP", cascade_vp[c]);
+        for (auto& [key, insts] : all_groups) {
+            if (insts.empty()) continue;
+            GLintptr at = upload(insts);
+            glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
+            glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
+            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+            glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
+                                    nullptr, (GLsizei)insts.size());
+        }
+        draw_skinned(shadow_);
     }
-    draw_skinned(shadow_);
+    glDisable(GL_POLYGON_OFFSET_FILL);
     glCullFace(GL_BACK);
 
     // pass 2: HDR scene
@@ -777,16 +844,19 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
 
-    glBindTextureUnit(0, shadow_map_.depth_texture());
+    glBindTextureUnit(0, csm_tex_);
     pbr_.use();
     pbr_.set("uSkinned", 0);
     pbr_.set("uViewProj", view_proj);
-    pbr_.set("uLightVP", light_vp);
+    pbr_.set("uView", view);
     pbr_.set("uCamPos", cam.position);
     pbr_.set("uSunDir", sun_dir);
     pbr_.set("uSunColor", light.color);
     pbr_.set("uSunIntensity", light.intensity);
-    pbr_.set("uShadowMap", 0);
+    pbr_.set("uShadowArray", 0);
+    glUniformMatrix4fv(glGetUniformLocation(pbr_.id(), "uCascadeVP"), kCascades, GL_FALSE,
+                       (const float*)cascade_vp);
+    glUniform1fv(glGetUniformLocation(pbr_.id(), "uCascadeSplit"), kCascades, cascade_split_view);
     pbr_.set("uNumLights", (int)lights.size());
     if (!lights.empty()) {
         unsigned prog = pbr_.id();
