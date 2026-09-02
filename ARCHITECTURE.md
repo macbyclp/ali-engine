@@ -52,15 +52,19 @@ motor değişikliği izler ve anında yeniden yükler. Versiyonlanabilir, diff'l
 ```
 
 ## Yol haritası
-- **M1 — AI-sürülebilir çekirdek (şimdi):** JSON sahne formatı, hot-reload, JSON-RPC soket,
-  `entity.spawn/setTransform/list`, `camera.set`, `observe.screenshot`, `observe.state`.
-  glTF mesh + tek yönlü ışık + düz gölgesiz render. AI bir sahne kurup bakabiliyor.
-- **M2 — Görüntü kalitesi:** metallic-roughness PBR, IBL, gölge haritası, HDR + tonemap.
-- **M3 — Dünya:** Jolt fizik, raycast, karakter kontrolcü, `physics.*` komutları.
-- **M4 — Davranış:** component-tabanlı script/davranış sistemi, olay kuyruğu, AI'ın
-  davranış grafı basabilmesi.
-- **M5 — Ölçek:** frustum culling, instancing, asset streaming, iş parçacığı havuzu.
-- **M6 — Vulkan RHI (opsiyonel):** render katmanını soyutla, Vulkan backend.
+- **M1 — AI-sürülebilir çekirdek ✅:** JSON sahne formatı, hot-reload, stdin/stdout JSON
+  satır protokolü, `entity.*`, `camera.*`, `observe.screenshot`, `scene.state`.
+  glTF mesh + prosedürel primitifler.
+- **M2 — Görüntü kalitesi ✅:** metallic-roughness PBR, prosedürel-sky IBL yaklaşımı,
+  yönlü gölge haritası (PCF), HDR RGBA16F + ACES tonemap.
+- **M3 — Dünya ✅:** Jolt fizik, RigidBody, raycast, `world.step`, `physics.*` komutları.
+- **M4 — Davranış ✅:** veri-güdümlü Behavior component, tetikleyiciler (start/tick/
+  collision/event), aksiyonlar, contact event kuyruğu.
+- **M5 — Ölçek ✅:** frustum culling (job-parallel), GPU instancing, mesh önbelleği,
+  thread pool, `observe.stats`.
+- **M6 — Vulkan RHI:** ⏸️ ertelendi (2026-09-02). GL 4.5 backend yeterli; Vulkan'ın
+  getirisi (çok iş parçacıklı komut kaydı, düşük sürücü yükü) şu an gerekli değil.
+  Gelecek: render katmanını `GraphicsBackend` arayüzüne ayır, Vulkan backend ekle.
 
 ## İlkeler
 - **Headless her zaman çalışır.** Pencere olmadan render + screenshot alınabilir (CI, AI döngüsü).
