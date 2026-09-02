@@ -150,6 +150,11 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSunIntensity;
 uniform sampler2DShadow uShadowMap;
+uniform int uNumLights;
+uniform vec4 uLightPos[16];    // xyz position, w range
+uniform vec4 uLightColor[16];  // rgb color*intensity, w = spot ? 1 : 0
+uniform vec4 uLightDir[16];    // xyz cone axis, w unused
+uniform vec2 uLightCone[16];   // x cos(inner), y cos(outer)
 uniform sampler2D uBaseColorMap;
 uniform sampler2D uNormalMap;
 uniform sampler2D uMRMap;
@@ -163,6 +168,20 @@ float G_SchlickGGX(float NoX,float k){return NoX/(NoX*(1.0-k)+k);}
 float G_Smith(float NoV,float NoL,float r){float k=(r+1.0)*(r+1.0)/8.0;return G_SchlickGGX(NoV,k)*G_SchlickGGX(NoL,k);}
 vec3 fresnel(float ct,vec3 F0){return F0+(1.0-F0)*pow(1.0-ct,5.0);}
 vec3 fresnelRough(float ct,vec3 F0,float r){return F0+(max(vec3(1.0-r),F0)-F0)*pow(1.0-ct,5.0);}
+
+// BRDF * NoL for one light direction L (unit, surface->light). No radiance term.
+vec3 brdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float rough, float metallic, vec3 F0) {
+    vec3 H = normalize(V + L);
+    float NoV = max(dot(N, V), 1e-4);
+    float NoL = max(dot(N, L), 0.0);
+    float NoH = max(dot(N, H), 0.0);
+    float D = D_GGX(NoH, rough * rough);
+    float G = G_Smith(NoV, NoL, rough);
+    vec3  F = fresnel(max(dot(H, V), 0.0), F0);
+    vec3 spec = (D * G * F) / max(4.0 * NoV * NoL, 1e-4);
+    vec3 kd = (1.0 - F) * (1.0 - metallic);
+    return (kd * albedo / PI + spec) * NoL;
+}
 
 float shadowFactor(vec4 lsp, vec3 N, vec3 L) {
     vec3 p = lsp.xyz / lsp.w; p = p*0.5+0.5;
@@ -197,13 +216,25 @@ void main() {
     float NoH = max(dot(N,H),0.0);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    float D = D_GGX(NoH, rough*rough);
-    float G = G_Smith(NoV, NoL, rough);
-    vec3  F = fresnel(max(dot(H,V),0.0), F0);
-    vec3 spec = (D*G*F) / max(4.0*NoV*NoL, 1e-4);
-    vec3 kd = (1.0-F)*(1.0-metallic);
     float sh = shadowFactor(vLightSpace, N, L);
-    vec3 direct = (kd*albedo/PI + spec) * uSunColor * uSunIntensity * NoL * sh;
+    vec3 direct = brdf(N, V, L, albedo, rough, metallic, F0) * uSunColor * uSunIntensity * sh;
+
+    for (int i = 0; i < uNumLights; ++i) {
+        vec3 lp = uLightPos[i].xyz;
+        vec3 Lv = lp - vWorld;
+        float dist = length(Lv);
+        if (dist < 1e-4) continue;
+        Lv /= dist;
+        float range = max(uLightPos[i].w, 0.001);
+        float att = clamp(1.0 - dist / range, 0.0, 1.0);
+        att *= att;
+        if (uLightColor[i].w > 0.5) {
+            float cd = dot(-Lv, normalize(uLightDir[i].xyz));
+            att *= smoothstep(uLightCone[i].y, uLightCone[i].x, cd);
+        }
+        if (att <= 0.0) continue;
+        direct += brdf(N, V, Lv, albedo, rough, metallic, F0) * uLightColor[i].rgb * att;
+    }
 
     vec3 skyUp = skyColor(vec3(0,1,0), normalize(uSunDir));
     vec3 skyDn = skyColor(vec3(0,-1,0), normalize(uSunDir));
@@ -347,6 +378,19 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     for (auto [e, dl] : scene.registry.view<DirectionalLight>().each()) { light = dl; break; }
     glm::vec3 sun_dir = glm::normalize(light.direction);
 
+    // punctual lights (point + spot)
+    struct GpuLight { glm::vec4 pos; glm::vec4 color; glm::vec4 dir; glm::vec2 cone; };
+    std::vector<GpuLight> lights;
+    for (auto [e, wt, pl] : scene.registry.view<WorldTransform, PunctualLight>().each()) {
+        if (lights.size() >= 16) break;
+        GpuLight g;
+        g.pos = glm::vec4(wt.position, pl.range);
+        g.color = glm::vec4(pl.color * pl.intensity, pl.spot ? 1.0f : 0.0f);
+        g.dir = glm::vec4(glm::normalize(pl.direction), 0.0f);
+        g.cone = {std::cos(glm::radians(pl.inner_deg)), std::cos(glm::radians(pl.outer_deg))};
+        lights.push_back(g);
+    }
+
     struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
     std::vector<Item> items;
     struct SkinItem { MeshRenderer* mr; glm::mat4 model; const std::vector<glm::mat4>* joints; };
@@ -485,6 +529,17 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     pbr_.set("uSunColor", light.color);
     pbr_.set("uSunIntensity", light.intensity);
     pbr_.set("uShadowMap", 0);
+    pbr_.set("uNumLights", (int)lights.size());
+    if (!lights.empty()) {
+        unsigned prog = pbr_.id();
+        std::vector<glm::vec4> pos, col, dir; std::vector<glm::vec2> cone;
+        for (auto& g : lights) { pos.push_back(g.pos); col.push_back(g.color);
+                                 dir.push_back(g.dir); cone.push_back(g.cone); }
+        glUniform4fv(glGetUniformLocation(prog, "uLightPos"), (GLsizei)pos.size(), (const float*)pos.data());
+        glUniform4fv(glGetUniformLocation(prog, "uLightColor"), (GLsizei)col.size(), (const float*)col.data());
+        glUniform4fv(glGetUniformLocation(prog, "uLightDir"), (GLsizei)dir.size(), (const float*)dir.data());
+        glUniform2fv(glGetUniformLocation(prog, "uLightCone"), (GLsizei)cone.size(), (const float*)cone.data());
+    }
     pbr_.set("uBaseColorMap", 1);
     pbr_.set("uNormalMap", 2);
     pbr_.set("uMRMap", 3);

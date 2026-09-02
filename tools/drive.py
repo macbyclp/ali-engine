@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal driver for ali-engine's JSON line protocol.
-
-Usage: python tools/drive.py [engine.exe] [gltf_path]
-
-Demonstrates skeletal animation (M9) with the builtin skinned test model,
-plus a static prop if a glTF path is given.
-"""
+"""ali-engine driver — M10 lighting demo (point + spot lights)."""
 import json
 import subprocess
 import sys
@@ -13,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
-GLTF = sys.argv[2] if len(sys.argv) > 2 else None
 
 
 def main() -> int:
@@ -39,31 +32,32 @@ def main() -> int:
 
     call("ping")
     call("scene.reset")
-    call("entity.spawn", name="floor", primitive="plane", scale=[14, 1, 14],
-         base_color_map="builtin:checker", uv_scale=[8, 8], roughness=0.9)
+    call("entity.spawn", name="floor", primitive="plane", scale=[16, 1, 16],
+         base_color=[0.8, 0.8, 0.82], roughness=0.6)
 
-    # three copies of the builtin skinned bar, animation phase-offset by start time
-    for i, x in enumerate([-3, 0, 3]):
-        call("entity.spawn", name=f"bar{i}", primitive="skinned",
-             gltf_path="builtin:bendbar", position=[x, 0, 0],
-             base_color=[0.3 + 0.2 * i, 0.6, 0.85 - 0.2 * i],
-             animation={"clip": "wave", "speed": 1.0 + 0.3 * i})
-        print(f"bar{i} clips:", call("animation.list", name=f"bar{i}")["result"]["clips"])
+    # a grid of white pillars to catch the light
+    for i in range(-3, 4):
+        for j in range(-2, 3):
+            call("entity.spawn", name=f"p_{i}_{j}", primitive="cube",
+                 position=[i * 2.2, 0.9, j * 2.2], scale=[0.5, 1.8, 0.5],
+                 base_color=[0.75, 0.75, 0.78], roughness=0.5)
 
-    if GLTF:
-        call("entity.spawn", name="model", primitive="skinned", gltf_path=GLTF,
-             position=[0, 0, -4])
-        print("model clips:", call("animation.list", name="model")["result"])
-        call("animation.play", name="model")
+    # dim the sun, then add coloured point + spot lights
+    call("light.set", name="sun", direction=[-0.4, -1, -0.3], intensity=0.4)
+    call("light.add", name="lamp_r", type="point", position=[-4, 2.5, 0],
+         color=[1.0, 0.25, 0.2], intensity=14, range=9)
+    call("light.add", name="lamp_b", type="point", position=[4, 2.5, 0],
+         color=[0.2, 0.4, 1.0], intensity=14, range=9)
+    call("light.add", name="spot", type="spot", position=[0, 7, 5],
+         direction=[0, -1, -0.6], color=[1.0, 0.95, 0.7], intensity=40,
+         range=16, inner_deg=14, outer_deg=24)
 
-    call("light.set", name="sun", direction=[-0.5, -1, -0.35], intensity=3.2)
-    call("camera.set", position=[0, 3.5, 11], target=[0, 2, 0], fov_deg=55)
+    call("camera.set", position=[0, 6, 14], target=[0, 1, 0], fov_deg=55)
 
-    call("world.step", dt=1 / 60, steps=40)
     call("observe.screenshot", path=str(ROOT / "screenshots" / "drive.png"))
-    call("world.step", dt=1 / 60, steps=30)
-    call("observe.screenshot", path=str(ROOT / "screenshots" / "drive_b.png"))
     print("stats:", call("observe.stats")["result"])
+    print("state lights:", [e["name"] for e in call("scene.state")["result"]["entities"]
+                            if "light" in e])
     call("scene.save", path=str(ROOT / "scenes" / "generated.json"))
     call("quit")
     proc.wait(timeout=5)

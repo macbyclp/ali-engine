@@ -99,11 +99,24 @@ void Scene::load_json(const json& j) {
         }
         if (je.contains("light")) {
             const auto& jl = je["light"];
-            DirectionalLight dl;
-            dl.direction = v3(jl.value("direction", json()), dl.direction);
-            dl.color = v3(jl.value("color", json()), dl.color);
-            dl.intensity = jl.value("intensity", dl.intensity);
-            registry.emplace<DirectionalLight>(e, dl);
+            std::string lt = jl.value("type", std::string("directional"));
+            if (lt == "point" || lt == "spot") {
+                PunctualLight pl;
+                pl.spot = (lt == "spot");
+                pl.color = v3(jl.value("color", json()), pl.color);
+                pl.intensity = jl.value("intensity", pl.intensity);
+                pl.range = jl.value("range", pl.range);
+                pl.direction = v3(jl.value("direction", json()), pl.direction);
+                pl.inner_deg = jl.value("inner_deg", pl.inner_deg);
+                pl.outer_deg = jl.value("outer_deg", pl.outer_deg);
+                registry.emplace<PunctualLight>(e, pl);
+            } else {
+                DirectionalLight dl;
+                dl.direction = v3(jl.value("direction", json()), dl.direction);
+                dl.color = v3(jl.value("color", json()), dl.color);
+                dl.intensity = jl.value("intensity", dl.intensity);
+                registry.emplace<DirectionalLight>(e, dl);
+            }
         }
         if (je.contains("body")) {
             const auto& jb = je["body"];
@@ -174,10 +187,24 @@ json Scene::to_json() const {
         }
         if (auto* dl = registry.try_get<DirectionalLight>(e)) {
             je["light"] = {
+                {"type", "directional"},
                 {"direction", v3(dl->direction)},
                 {"color", v3(dl->color)},
                 {"intensity", dl->intensity},
             };
+        }
+        if (auto* pl = registry.try_get<PunctualLight>(e)) {
+            je["light"] = {
+                {"type", pl->spot ? "spot" : "point"},
+                {"color", v3(pl->color)},
+                {"intensity", pl->intensity},
+                {"range", pl->range},
+            };
+            if (pl->spot) {
+                je["light"]["direction"] = v3(pl->direction);
+                je["light"]["inner_deg"] = pl->inner_deg;
+                je["light"]["outer_deg"] = pl->outer_deg;
+            }
         }
         if (auto* rb = registry.try_get<RigidBody>(e)) {
             je["body"] = {
