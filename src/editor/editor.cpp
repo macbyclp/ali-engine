@@ -27,6 +27,7 @@ Editor::Editor(GLFWwindow* window) : window_(window) {
     apply_unreal_theme();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 450");
+    bp_ = std::make_unique<BlueprintEditor>();
 }
 
 Editor::~Editor() {
@@ -340,6 +341,12 @@ void Editor::panel_details(CommandContext& ctx) {
 }
 
 void Editor::panel_viewport(CommandContext& ctx, unsigned tex) {
+    if (mode_ == 1) {   // Graph mode: Blueprint node editor fills the centre
+        ImGui::Begin("Viewport");
+        bp_->draw(ctx, selected_);
+        ImGui::End();
+        return;
+    }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Viewport");
     ImVec2 avail = ImGui::GetContentRegionAvail();
