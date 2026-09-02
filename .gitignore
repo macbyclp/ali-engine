@@ -1,0 +1,8 @@
+/build/
+/build-web/
+*.o
+*.obj
+compile_commands.json
+.cache/
+.vs/
+.DS_Store
