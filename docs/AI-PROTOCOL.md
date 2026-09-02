@@ -49,8 +49,26 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `physics.setGravity` | `{gravity:[x,y,z]}` | — |
 | `physics.getGravity` | — | `{gravity}` |
 | `physics.raycast` | `{origin, direction, max_distance?}` | `{hit, point?, normal?, distance?, entity?}` |
+| `behavior.set` | `{name, behaviors:[...]}` | — |
+| `behavior.get` | `{name}` | `{rules}` |
+| `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `quit` | — | — |
+
+### Davranış (`behavior`)
+`behavior.set` veya `entity.spawn`/`spawn` aksiyonu içinde `behavior`. Kural dizisi:
+```json
+[
+  {"on": "start",     "do": [{"action": "impulse", "impulse": [4,3,0]}]},
+  {"on": "tick",      "do": [{"action": "spin", "axis": [0,1,0], "speed_deg": 60}]},
+  {"on": "collision", "with": "floor", "do": [{"action": "setColor", "color": [1,0,0]}]},
+  {"on": "event", "name": "burst", "do": [{"action": "spawn", "primitive": "sphere", "position": [0,5,0]}]}
+]
+```
+Aksiyonlar: `log`, `setVelocity {velocity}`, `impulse {impulse}`, `spin {axis,speed_deg}`,
+`moveToward {target,speed}`, `setMaterial/setColor {color,metallic,roughness}`,
+`spawn {…entity params…, relative?}`, `destroy {target?}`, `emit {event}`.
+Kurallar `world.step` ve `physics.play` sırasında her adımda değerlendirilir.
 
 ### Fizik (`body`)
 `entity.spawn`/`entity.setBody` içinde: `{type: "static"|"dynamic"|"kinematic",

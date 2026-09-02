@@ -151,9 +151,28 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             float dt = p.value("dt", 1.0f / 60.0f);
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
-            for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i)
+            for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
+                ctx.behaviors.tick(scene, ctx.physics, dt);
                 ctx.physics.step(scene, dt, substeps);
+            }
             return ok(id, {{"stepped", steps}, {"dt", dt}});
+        }
+        if (method == "behavior.set") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            json rules = p.contains("behaviors") ? p["behaviors"] : p.value("rules", json::array());
+            scene.registry.emplace_or_replace<Behavior>(e, Behavior{rules, false});
+            return ok(id);
+        }
+        if (method == "behavior.get") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* b = scene.registry.try_get<Behavior>(e);
+            return ok(id, {{"rules", b ? b->rules : json::array()}});
+        }
+        if (method == "event.emit") {
+            ctx.behaviors.emit(p.at("event").get<std::string>());
+            return ok(id);
         }
         if (method == "physics.play")  { ctx.sim_running = true;  return ok(id); }
         if (method == "physics.pause") { ctx.sim_running = false; return ok(id); }

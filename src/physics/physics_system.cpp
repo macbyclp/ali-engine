@@ -1,6 +1,8 @@
 #include "physics/physics_system.hpp"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace eng {
 
@@ -86,6 +88,30 @@ void PhysicsSystem::teleport(Scene& scene, const std::string& name) {
     if (!rb || !t || !rb->registered) return;
     world_.set_transform(rb->handle, t->position, glm::quat(glm::radians(t->euler_deg)));
     world_.set_linear_velocity(rb->handle, glm::vec3(0));
+}
+
+void PhysicsSystem::impulse(const std::string& name, Scene& scene, const glm::vec3& j) {
+    auto e = scene.find(name);
+    if (e == entt::null) return;
+    if (auto* rb = scene.registry.try_get<RigidBody>(e); rb && rb->registered)
+        world_.add_impulse(rb->handle, j);
+}
+void PhysicsSystem::set_velocity(const std::string& name, Scene& scene, const glm::vec3& v) {
+    auto e = scene.find(name);
+    if (e == entt::null) return;
+    if (auto* rb = scene.registry.try_get<RigidBody>(e); rb && rb->registered)
+        world_.set_linear_velocity(rb->handle, v);
+}
+
+std::vector<std::pair<entt::entity, entt::entity>> PhysicsSystem::drain_contacts() {
+    std::vector<std::pair<entt::entity, entt::entity>> out;
+    for (auto [ha, hb] : world_.drain_contacts()) {
+        auto ia = handle_to_entity_.find(ha);
+        auto ib = handle_to_entity_.find(hb);
+        if (ia != handle_to_entity_.end() && ib != handle_to_entity_.end())
+            out.emplace_back(ia->second, ib->second);
+    }
+    return out;
 }
 
 } // namespace eng

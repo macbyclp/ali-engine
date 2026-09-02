@@ -2,8 +2,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace eng {
 
@@ -43,12 +45,16 @@ public:
     void set_transform(uint32_t handle, const glm::vec3& pos, const glm::quat& rot);
     void get_transform(uint32_t handle, glm::vec3& pos, glm::quat& rot) const;
     void set_linear_velocity(uint32_t handle, const glm::vec3& v);
+    void add_impulse(uint32_t handle, const glm::vec3& j);
 
     void set_gravity(const glm::vec3& g);
     glm::vec3 gravity() const;
 
     void step(float dt);
     RayHit raycast(const glm::vec3& origin, const glm::vec3& dir, float max_distance) const;
+
+    // Contact pairs (handle,handle) detected during the most recent step(s).
+    std::vector<std::pair<uint32_t, uint32_t>> drain_contacts();
 
 private:
     struct Impl;
