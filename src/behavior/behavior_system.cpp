@@ -2,6 +2,8 @@
 #include "core/log.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <cstdio>
+#include <string>
 
 using nlohmann::json;
 
@@ -15,6 +17,32 @@ static glm::vec3 v3(const json& j, glm::vec3 fb) {
 static std::string name_of(Scene& s, entt::entity e) {
     auto* n = s.registry.try_get<Name>(e);
     return n ? n->value : std::string();
+}
+
+// Replaces ${key} tokens with GameState values (numbers printed without trailing .0).
+static std::string interp(const std::string& in, const GameState& gs) {
+    std::string out;
+    for (size_t i = 0; i < in.size();) {
+        if (in[i] == '$' && i + 1 < in.size() && in[i + 1] == '{') {
+            size_t end = in.find('}', i + 2);
+            if (end != std::string::npos) {
+                std::string key = in.substr(i + 2, end - i - 2);
+                if (gs.values.contains(key)) {
+                    const auto& v = gs.values.at(key);
+                    if (v.is_number_integer()) out += std::to_string(v.get<long long>());
+                    else if (v.is_number()) {
+                        char buf[32];
+                        std::snprintf(buf, sizeof(buf), "%g", v.get<double>());
+                        out += buf;
+                    } else if (v.is_string()) out += v.get<std::string>();
+                }
+                i = end + 1;
+                continue;
+            }
+        }
+        out += in[i++];
+    }
+    return out;
 }
 
 static void spawn_from_json(Scene& scene, const json& p) {
@@ -52,9 +80,9 @@ static void spawn_from_json(Scene& scene, const json& p) {
     scene.resolve_gpu_meshes();
 }
 
-void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, entt::entity self,
-                                 const json& actions, const std::string& other, float dt,
-                                 std::vector<entt::entity>& to_destroy,
+void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState& gs,
+                                 entt::entity self, const json& actions, const std::string& other,
+                                 float dt, std::vector<entt::entity>& to_destroy,
                                  std::vector<json>& to_spawn) {
     if (!actions.is_array()) return;
     std::string self_name = name_of(scene, self);
@@ -104,13 +132,33 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, entt::ent
             if (e != entt::null) to_destroy.push_back(e);
         } else if (act == "emit") {
             pending_events_.push_back(a.value("event", std::string()));
+        } else if (act == "setState") {
+            if (a.contains("key")) gs.values[a["key"].get<std::string>()] = a.value("value", json());
+        } else if (act == "addState") {
+            if (a.contains("key")) {
+                std::string k = a["key"].get<std::string>();
+                double cur = gs.values.contains(k) && gs.values[k].is_number()
+                                 ? gs.values[k].get<double>() : 0.0;
+                gs.values[k] = cur + a.value("value", 1.0);
+            }
+        } else if (act == "timer") {
+            gs.timers.push_back({a.value("after", 1.0f), a.value("event", std::string())});
+        } else if (act == "setUI") {
+            auto e = scene.find(a.value("target", std::string()));
+            if (e != entt::null) {
+                if (auto* ui = scene.registry.try_get<UIElement>(e)) {
+                    if (a.contains("text")) ui->text = interp(a["text"].get<std::string>(), gs);
+                    if (a.contains("value")) ui->value = a["value"].get<float>();
+                    if (a.contains("visible")) ui->visible = a["visible"].get<bool>();
+                }
+            }
         }
     }
 }
 
-void BehaviorSystem::run_rules(Scene& scene, PhysicsSystem& physics, entt::entity self,
-                               const char* trigger, const std::string& other, float dt,
-                               std::vector<entt::entity>& to_destroy,
+void BehaviorSystem::run_rules(Scene& scene, PhysicsSystem& physics, GameState& gs,
+                               entt::entity self, const char* trigger, const std::string& other,
+                               float dt, std::vector<entt::entity>& to_destroy,
                                std::vector<json>& to_spawn) {
     auto* b = scene.registry.try_get<Behavior>(self);
     if (!b || !b->rules.is_array()) return;
@@ -120,16 +168,18 @@ void BehaviorSystem::run_rules(Scene& scene, PhysicsSystem& physics, entt::entit
             std::string want = rule.value("with", std::string());
             if (!want.empty() && want != other) continue;
         }
-        run_actions(scene, physics, self, rule.value("do", json::array()), other, dt,
+        if (rule.contains("if") && !gs.check(rule["if"])) continue;
+        run_actions(scene, physics, gs, self, rule.value("do", json::array()), other, dt,
                     to_destroy, to_spawn);
     }
 }
 
-void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, float dt) {
+void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, GameState& gs, float dt) {
     std::vector<entt::entity> to_destroy;
     std::vector<json> to_spawn;
 
-    // events raised last tick
+    gs.tick(dt, pending_events_);   // timer -> events
+
     std::vector<std::string> events;
     events.swap(pending_events_);
 
@@ -142,28 +192,28 @@ void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, float dt) {
             if (!b) continue;
             for (const json& rule : b->rules) {
                 if (rule.value("on", std::string()) == "event" &&
-                    rule.value("name", std::string()) == ev)
-                    run_actions(scene, physics, e, rule.value("do", json::array()), "", dt,
+                    rule.value("name", std::string()) == ev) {
+                    if (rule.contains("if") && !gs.check(rule["if"])) continue;
+                    run_actions(scene, physics, gs, e, rule.value("do", json::array()), "", dt,
                                 to_destroy, to_spawn);
+                }
             }
         }
     }
 
-    // collisions
     for (auto [a, c] : physics.drain_contacts()) {
-        run_rules(scene, physics, a, "collision", name_of(scene, c), dt, to_destroy, to_spawn);
-        run_rules(scene, physics, c, "collision", name_of(scene, a), dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, a, "collision", name_of(scene, c), dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, c, "collision", name_of(scene, a), dt, to_destroy, to_spawn);
     }
 
-    // start + tick
     for (auto e : ents) {
         auto* b = scene.registry.try_get<Behavior>(e);
         if (!b) continue;
         if (!b->started) {
-            run_rules(scene, physics, e, "start", "", dt, to_destroy, to_spawn);
+            run_rules(scene, physics, gs, e, "start", "", dt, to_destroy, to_spawn);
             b->started = true;
         }
-        run_rules(scene, physics, e, "tick", "", dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, e, "tick", "", dt, to_destroy, to_spawn);
     }
 
     for (auto& p : to_spawn) spawn_from_json(scene, p);

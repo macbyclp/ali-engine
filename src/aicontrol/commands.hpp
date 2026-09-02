@@ -1,6 +1,7 @@
 #pragma once
 #include "audio/audio.hpp"
 #include "behavior/behavior_system.hpp"
+#include "game/gamestate.hpp"
 #include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
@@ -8,6 +9,7 @@
 #include "scene/scene.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 
 namespace eng {
 
@@ -19,9 +21,11 @@ struct CommandContext {
     BehaviorSystem& behaviors;
     NavGrid& nav;
     AudioEngine& audio;
+    GameState& game;
     std::string scene_path;   // currently loaded scene file (for hot-reload + default save)
     bool quit = false;
     bool sim_running = false;  // when true, main loop steps physics every frame
+    std::unordered_map<std::string, nlohmann::json> checkpoints;
 };
 
 // Executes one request on the main thread, returns the response object.
