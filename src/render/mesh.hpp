@@ -12,6 +12,8 @@ struct Vertex {
     glm::vec3 normal{0, 1, 0};
     glm::vec2 uv{0};
     glm::vec4 tangent{1, 0, 0, 1};   // xyz = tangent, w = handedness
+    glm::ivec4 joints{0, 0, 0, 0};   // skin joint indices (0 for static meshes)
+    glm::vec4 weights{0, 0, 0, 0};   // skin weights (sum 0 => not skinned)
 };
 
 class Mesh {

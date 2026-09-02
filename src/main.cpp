@@ -1,5 +1,6 @@
 #include "aicontrol/channel.hpp"
 #include "aicontrol/commands.hpp"
+#include "anim/animation_system.hpp"
 #include "behavior/behavior_system.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
@@ -91,6 +92,7 @@ int main(int argc, char** argv) {
                 last_write = scene_mtime();
         }
 
+        eng::update_animations(scene, dt);
         if (ctx.sim_running) {
             behaviors.tick(scene, physics, dt);
             physics.step(scene, dt);
