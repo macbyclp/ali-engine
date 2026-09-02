@@ -50,6 +50,9 @@ Shader& Shader::operator=(Shader&& o) noexcept {
 void Shader::use() const { glUseProgram(prog_); }
 void Shader::set(const char* n, int v) const { glUniform1i(glGetUniformLocation(prog_, n), v); }
 void Shader::set(const char* n, float v) const { glUniform1f(glGetUniformLocation(prog_, n), v); }
+void Shader::set(const char* n, const glm::vec2& v) const {
+    glUniform2fv(glGetUniformLocation(prog_, n), 1, glm::value_ptr(v));
+}
 void Shader::set(const char* n, const glm::vec3& v) const {
     glUniform3fv(glGetUniformLocation(prog_, n), 1, glm::value_ptr(v));
 }

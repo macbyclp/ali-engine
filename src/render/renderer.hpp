@@ -26,18 +26,21 @@ public:
     const RenderStats& stats() const { return stats_; }
 
 private:
-    Shader pbr_, sky_, shadow_, tonemap_;
-    std::unique_ptr<Framebuffer> hdr_;
+    Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
+    std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
     Framebuffer shadow_map_;
     unsigned empty_vao_ = 0;
     unsigned draw_vao_ = 0;
     unsigned instance_vbo_ = 0;
     size_t instance_capacity_ = 0;
+    unsigned particle_vao_ = 0, particle_vbo_ = 0;
+    size_t particle_capacity_ = 0;
     JobSystem jobs_;
     RenderStats stats_;
 
     void ensure_hdr(int w, int h);
     void ensure_instances(size_t bytes);
+    void bloom_pass(int w, int h);
 };
 
 } // namespace eng

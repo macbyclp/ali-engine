@@ -1,7 +1,9 @@
 #include "aicontrol/channel.hpp"
 #include "aicontrol/commands.hpp"
 #include "anim/animation_system.hpp"
+#include "audio/audio.hpp"
 #include "behavior/behavior_system.hpp"
+#include "fx/particles.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 #include "nav/navgrid.hpp"
@@ -45,9 +47,10 @@ int main(int argc, char** argv) {
     physics.sync(scene);
     eng::BehaviorSystem behaviors;
     eng::NavGrid nav;
+    eng::AudioEngine audio;
 
     eng::ControlChannel channel;
-    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, scene_path};
+    eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, scene_path};
     ctx.sim_running = start_playing;
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
@@ -95,6 +98,11 @@ int main(int argc, char** argv) {
         }
 
         eng::update_animations(scene, dt);
+        eng::update_particles(scene, dt);
+        {
+            eng::CameraComp& c = scene.camera();
+            audio.set_listener(c.position, glm::normalize(c.target - c.position));
+        }
         if (ctx.sim_running) {
             behaviors.tick(scene, physics, dt);
             physics.step(scene, dt);

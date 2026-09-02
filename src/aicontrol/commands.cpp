@@ -1,5 +1,6 @@
 #include "aicontrol/commands.hpp"
 #include "anim/animation_system.hpp"
+#include "fx/particles.hpp"
 #include "core/log.hpp"
 #include <filesystem>
 #include <fstream>
@@ -231,6 +232,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int substeps = p.value("substeps", 1);
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
                 update_animations(scene, dt);
+                update_particles(scene, dt);
                 ctx.behaviors.tick(scene, ctx.physics, dt);
                 ctx.physics.step(scene, dt, substeps);
                 ctx.physics.step_characters(scene, dt);
@@ -268,6 +270,44 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (mr && mr->skinned)
                 for (auto& [k, v] : mr->skinned->clips) clips.push_back(k);
             return ok(id, {{"clips", clips}});
+        }
+        if (method == "audio.play") {
+            std::string file = p.at("file").get<std::string>();
+            bool spatial = p.value("spatial", p.contains("position"));
+            glm::vec3 pos = v3(p.value("position", json()), glm::vec3(0));
+            uint32_t h = ctx.audio.play(file, p.value("volume", 1.0f),
+                                        p.value("loop", false), spatial, pos);
+            if (!h) return fail(id, ctx.audio.ok() ? "load failed" : "no audio device");
+            return ok(id, {{"handle", h}});
+        }
+        if (method == "audio.stop") {
+            ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
+            return ok(id);
+        }
+        if (method == "particles.emit") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) e = scene.create(p.at("name").get<std::string>());
+            apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
+            auto& em = scene.registry.get_or_emplace<ParticleEmitter>(e);
+            em.rate = p.value("rate", em.rate);
+            em.lifetime = p.value("lifetime", em.lifetime);
+            em.velocity = v3(p.value("velocity", json()), em.velocity);
+            em.velocity_spread = v3(p.value("velocity_spread", json()), em.velocity_spread);
+            em.gravity = v3(p.value("gravity", json()), em.gravity);
+            if (p.contains("start_color") && p["start_color"].size() == 4)
+                em.start_color = {p["start_color"][0], p["start_color"][1], p["start_color"][2], p["start_color"][3]};
+            if (p.contains("end_color") && p["end_color"].size() == 4)
+                em.end_color = {p["end_color"][0], p["end_color"][1], p["end_color"][2], p["end_color"][3]};
+            em.start_size = p.value("start_size", em.start_size);
+            em.end_size = p.value("end_size", em.end_size);
+            em.emitting = p.value("emitting", true);
+            return ok(id);
+        }
+        if (method == "particles.stop") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such emitter");
+            if (auto* em = scene.registry.try_get<ParticleEmitter>(e)) em->emitting = false;
+            return ok(id);
         }
         if (method == "character.create") {
             auto e = scene.find(p.at("name").get<std::string>());

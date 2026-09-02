@@ -33,6 +33,8 @@ FetchContent_Declare(stb GIT_REPOSITORY https://github.com/nothings/stb.git
     GIT_TAG f0569113c93ad095470c54bf34a17b36646bbbb5)
 FetchContent_Declare(cgltf GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
     GIT_TAG v1.14)
+FetchContent_Declare(miniaudio GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG 0.11.21)
 
 set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
@@ -45,13 +47,13 @@ FetchContent_Declare(jolt
     GIT_TAG v5.2.0
     SOURCE_SUBDIR Build)
 
-FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt)
+FetchContent_MakeAvailable(glm json entt glfw glad stb cgltf jolt miniaudio)
 glad_add_library(glad_gl46 STATIC API gl:core=4.6)
 
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 add_executable(engine ${ENGINE_SOURCES})
-target_include_directories(engine PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR})
+target_include_directories(engine PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
 target_link_libraries(engine PRIVATE
     glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glfw glad_gl46 Jolt)
 

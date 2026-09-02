@@ -130,6 +130,29 @@ struct CharacterController {
     bool registered = false;
 };
 
+struct Particle {
+    glm::vec3 pos{0}, vel{0};
+    float life = 0.0f, max_life = 1.0f;
+};
+
+// A CPU particle emitter. Particles spawn at the entity's world position.
+struct ParticleEmitter {
+    float rate = 40.0f;
+    float lifetime = 2.0f;
+    glm::vec3 velocity{0.0f, 3.0f, 0.0f};
+    glm::vec3 velocity_spread{1.2f, 0.8f, 1.2f};
+    glm::vec3 gravity{0.0f, -3.0f, 0.0f};
+    glm::vec4 start_color{1.0f, 0.6f, 0.2f, 1.0f};
+    glm::vec4 end_color{1.0f, 0.1f, 0.0f, 0.0f};
+    float start_size = 0.35f;
+    float end_size = 0.02f;
+    bool emitting = true;
+
+    float accum = 0.0f;
+    uint32_t seed = 0x9e3779b9u;
+    std::vector<Particle> particles;
+};
+
 // The active view. One entity in the scene carries this.
 struct CameraComp {
     glm::vec3 position{0, 2, 6};
