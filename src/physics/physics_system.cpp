@@ -133,6 +133,13 @@ void PhysicsSystem::sync_joints(Scene& scene) {
     }
 }
 
+void PhysicsSystem::clear() {
+    world_.reset();
+    handle_to_entity_.clear();
+    joint_handles_.clear();
+    character_handles_.clear();
+}
+
 void PhysicsSystem::step(Scene& scene, float dt, int substeps) {
     sync(scene);
     sync_joints(scene);

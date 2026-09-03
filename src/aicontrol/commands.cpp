@@ -193,6 +193,11 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
     const json p = req.value("params", json::object());
     Scene& scene = ctx.scene;
 
+    if (ctx.recording && method != "quit" && method.rfind("record.", 0) != 0) {
+        ctx.record_file << req.dump() << '\n';
+        ctx.record_file.flush();
+    }
+
     try {
         if (method == "ping") return ok(id, {{"pong", true}});
 
@@ -213,6 +218,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
         }
         if (method == "scene.reset") {
             scene.clear();
+            ctx.physics.clear();
             return ok(id);
         }
         if (method == "scene.state") return ok(id, scene.to_json());
@@ -1123,6 +1129,49 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             Framebuffer::bind_default(w, h);
             if (!saved) return fail(id, "screenshot write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h}});
+        }
+
+        if (method == "record.start") {
+            std::string path = resolve_out_path(p, "record.jsonl");
+            ctx.record_file.close();
+            ctx.record_file.clear();
+            ctx.record_file.open(path, std::ios::out | std::ios::trunc);
+            if (!ctx.record_file) return fail(id, "cannot open: " + path);
+            ctx.recording = true;
+            ctx.record_path = path;
+            return ok(id, {{"path", path}});
+        }
+        if (method == "record.stop") {
+            ctx.recording = false;
+            ctx.record_file.flush();
+            ctx.record_file.close();
+            return ok(id, {{"path", ctx.record_path}});
+        }
+        if (method == "record.play") {
+            std::string path = p.at("path").get<std::string>();
+            std::ifstream f(path);
+            if (!f) return fail(id, "record not found: " + path);
+            bool was_rec = ctx.recording;
+            ctx.recording = false;   // never re-record while replaying
+            // reset the physics world so a replay is reproducible from any state
+            ctx.physics.clear();
+            for (auto [e, rb] : scene.registry.view<RigidBody>().each()) rb.registered = false;
+            for (auto [e, j] : scene.registry.view<Joint>().each()) j.registered = false;
+            for (auto [e, cc] : scene.registry.view<CharacterController>().each()) cc.registered = false;
+            int n = 0, failed = 0;
+            std::string line;
+            while (std::getline(f, line)) {
+                if (line.empty()) continue;
+                json rq;
+                try { rq = json::parse(line); } catch (...) { continue; }
+                std::string m = rq.value("method", std::string());
+                if (m == "quit" || m.rfind("record.", 0) == 0) continue;
+                json rr = dispatch(ctx, rq);
+                if (!rr.value("ok", false)) ++failed;
+                ++n;
+            }
+            ctx.recording = was_rec;
+            return ok(id, {{"played", n}, {"failed", failed}, {"path", path}});
         }
 
         if (method == "plugin.list")

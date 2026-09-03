@@ -166,6 +166,14 @@ PhysicsWorld::PhysicsWorld() {
 
 PhysicsWorld::~PhysicsWorld() = default;
 
+void PhysicsWorld::reset() {
+    JPH::Vec3 g = p_->system.GetGravity();
+    p_ = std::make_unique<Impl>();     // drop the old world entirely
+    p_->system.Init(65536, 0, 65536, 10240, p_->bp_iface, p_->obj_vs_bp, p_->obj_pair);
+    p_->system.SetContactListener(&p_->contacts);
+    p_->system.SetGravity(g);
+}
+
 uint32_t PhysicsWorld::add_body(const BodyDesc& d) {
     JPH::ShapeRefC shape;
     if (d.shape == "heightfield" && d.hf_samples && d.hf_count >= 2) {
