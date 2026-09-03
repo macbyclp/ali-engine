@@ -74,6 +74,11 @@ int main(int argc, char** argv) {
     input.attach(headless ? nullptr : window.handle());
     behaviors.set_input(&input);
     ctx.input = &input;
+    auto apply_scene_input = [&] {
+        for (auto& [action, keys] : scene.input_map.items())
+            if (keys.is_array()) input.bind(action, keys.get<std::vector<std::string>>());
+    };
+    apply_scene_input();
 
     eng::PluginHost plugins;
     ctx.plugins = &plugins;
@@ -113,9 +118,11 @@ int main(int argc, char** argv) {
             auto mt = scene_mtime();
             if (mt != last_write && mt != fs::file_time_type{}) {
                 last_write = mt;
-                if (scene.load_file(ctx.scene_path))
+                if (scene.load_file(ctx.scene_path)) {
+                    apply_scene_input();
                     channel.respond(json{{"event", "scene.reloaded"},
                                          {"path", ctx.scene_path}});
+                }
             }
         }
 

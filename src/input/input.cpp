@@ -83,15 +83,19 @@ void InputSystem::set_virtual(const std::string& action, bool held) {
 }
 
 void InputSystem::update(float) {
+    // Ignore the keyboard/mouse when the window is not focused -- a game must not
+    // react while the player has alt-tabbed away. Virtual (AI) input is unaffected.
+    bool focused = win_ && glfwGetWindowAttrib(win_, GLFW_FOCUSED) == GLFW_TRUE;
+
     GLFWgamepadstate pad{};
-    bool have_pad = win_ && glfwJoystickIsGamepad(GLFW_JOYSTICK_1) &&
+    bool have_pad = focused && glfwJoystickIsGamepad(GLFW_JOYSTICK_1) &&
                     glfwGetGamepadState(GLFW_JOYSTICK_1, &pad);
 
     for (auto& [action, btn] : state_) {
         btn.prev = btn.down;
         bool hw = false;
         auto bi = bindings_.find(action);
-        if (win_ && bi != bindings_.end()) {
+        if (focused && bi != bindings_.end()) {
             for (const std::string& k : bi->second) {
                 int code = 0, kind = 0;
                 if (!key_code(k, code, kind)) continue;
