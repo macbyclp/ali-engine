@@ -1042,7 +1042,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 return "mesh";
             };
 
-            struct Box { std::string name; glm::vec3 mn, mx, c; bool has; };
+            struct Box { std::string name; glm::vec3 mn, mx, c; entt::entity e; bool terrain; };
             std::vector<Box> boxes;
             json ents = json::array();
             for (auto [e, n, wt] : scene.registry.view<Name, WorldTransform>().each()) {
@@ -1055,7 +1055,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                            {"position", v3(wt.position)}, {"on_screen", on_screen}};
                 if (has) je["size"] = json::array({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
                 ents.push_back(je);
-                if (has) boxes.push_back({n.value, mn, mx, 0.5f * (mn + mx), true});
+                if (has) boxes.push_back({n.value, mn, mx, 0.5f * (mn + mx), e,
+                                          scene.registry.all_of<TerrainComp>(e)});
             }
 
             // pairwise relations between entities whose AABBs are close
@@ -1083,8 +1084,18 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                               overlap(a.mn.z, a.mx.z, b.mn.z, b.mx.z);
                     const char* rel = nullptr;
                     std::string ra_name = a.name, rb_name = b.name;
-                    if (within_box(a, b)) rel = "inside";
-                    else if (within_box(b, a)) { rel = "inside"; std::swap(ra_name, rb_name); }
+                    // a terrain's AABB is a tall slab — compare against its real surface
+                    if (b.terrain) {
+                        auto* tc = scene.registry.try_get<TerrainComp>(b.e);
+                        float surf = tc ? tc->data.sample(a.c.x, a.c.z) : b.mx.y;
+                        if (xz && a.mn.y <= surf + 0.3f && a.mn.y >= surf - 0.5f * ext_a.y - 0.3f)
+                            rel = "on";
+                        else if (xz && a.mn.y > surf) rel = "above";
+                        if (rel) { rels.push_back({{"a", a.name}, {"rel", rel}, {"b", b.name}}); continue; }
+                    }
+                    // a terrain's AABB is a tall slab — never treat it as a container
+                    if (!b.terrain && within_box(a, b)) rel = "inside";
+                    else if (!a.terrain && within_box(b, a)) { rel = "inside"; std::swap(ra_name, rb_name); }
                     else if (xz && a.c.y > b.c.y && a.mn.y <= b.mx.y + 0.25f &&
                              a.mn.y >= b.mx.y - 0.5f * ext_a.y) rel = "on";
                     else if (xz && a.mn.y > b.mx.y + 0.1f) rel = "above";
