@@ -95,6 +95,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
 | `observe.segment` | `{path?, width?, height?}` | `{colorKey:{"idx":name}, colors:{"r,g,b":name}, path, width, height}` — her mesh düz benzersiz renk (entity kimliği) |
 | `observe.depth` | `{path?, width?, height?, near?, far?}` | `{path, width, height, near, far}` — lineer derinlik greyscale (yakın = beyaz); near/far verilmezse görünür geometriye oturtulur |
+| `observe.describe` | — | `{camera:{position,forward}, entities:[{name,kind,position,size,on_screen}], relations:[{a,rel,b}]}` — LLM için sahne özeti |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
 | `quit` | — | — |
@@ -215,6 +216,11 @@ meshlerin sınır küresi). `observe.segment` her mesh'i düz benzersiz bir renk
 dağıtılır, arka plan `0,0,0`). `observe.depth` lineer derinliği greyscale yazar
 (yakın = beyaz); `near`/`far` verilmezse görünür geometriye göre otomatik oturur.
 Hepsi `ctx.offscreen`'e çizer, sonra default framebuffer'a döner.
+
+`observe.describe` metin tabanlı bir sahne özeti verir: kamera, her entity için
+`kind` (mesh/light/body/terrain/camera), dünya-AABB `size`, `on_screen`; ve
+yakın entity çiftleri arasında basit `relations` (`on`, `above`, `inside`,
+`left_of`, `near`). İlişki mantığı kaba AABB çıkarımıdır, kesin değildir.
 
 ## AI döngüsü (tipik)
 1. `scene.load` veya `scene.reset`
