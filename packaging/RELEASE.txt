@@ -51,6 +51,9 @@ Editor
   back to the bundled Liberation Sans in assets/fonts/).
 
   Viewport:  RMB drag = orbit,  MMB drag = pan,  wheel = zoom
+  Select:    click in Hierarchy;  Ctrl+click adds to the selection (gizmo moves
+             all of them together)
+  Undo/redo: Ctrl+Z / Ctrl+Shift+Z  (full-scene snapshots)
   Toolbar:   Play toggles physics + behaviours + animation
   Designer / Graph toggle (top-right)  ->  Graph mode is the Blueprint node editor.
     Select an entity, right-click to add nodes, drag pins to wire, Compile.

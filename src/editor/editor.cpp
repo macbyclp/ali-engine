@@ -85,6 +85,49 @@ void Editor::end_frame() {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
+// ---------------- undo / redo ----------------
+bool Editor::is_selected(const std::string& name) const {
+    if (name == selected_) return true;
+    for (auto& s : multi_) if (s == name) return true;
+    return false;
+}
+
+void Editor::commit_history(CommandContext& ctx) {
+    ImGuiIO& io = ImGui::GetIO();
+    bool settled = !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing() &&
+                   !ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    std::string cur = ctx.scene.to_json().dump();
+    if (hist_snap_.empty()) { hist_snap_ = cur; return; }
+    if (!settled || cur == hist_snap_) return;
+    undo_.push_back(hist_snap_);
+    if (undo_.size() > 64) undo_.erase(undo_.begin());
+    redo_.clear();
+    hist_snap_ = std::move(cur);
+    (void)io;
+}
+
+void Editor::do_undo(CommandContext& ctx) {
+    if (undo_.empty()) return;
+    redo_.push_back(ctx.scene.to_json().dump());
+    std::string s = std::move(undo_.back());
+    undo_.pop_back();
+    ctx.scene.load_json(json::parse(s));
+    ctx.physics.sync(ctx.scene);
+    hist_snap_ = s;
+    console_log_.push_back("[undo]");
+}
+
+void Editor::do_redo(CommandContext& ctx) {
+    if (redo_.empty()) return;
+    undo_.push_back(ctx.scene.to_json().dump());
+    std::string s = std::move(redo_.back());
+    redo_.pop_back();
+    ctx.scene.load_json(json::parse(s));
+    ctx.physics.sync(ctx.scene);
+    hist_snap_ = s;
+    console_log_.push_back("[redo]");
+}
+
 // ---------------- helpers ----------------
 void Editor::run_console(CommandContext& ctx, const std::string& line) {
     try {
@@ -101,7 +144,7 @@ void Editor::run_console(CommandContext& ctx, const std::string& line) {
 void Editor::spawn(CommandContext& ctx, const char* primitive) {
     json r = dispatch(ctx, {{"method", "entity.spawn"},
                             {"params", {{"primitive", primitive}, {"position", {0, 1, 0}}}}});
-    if (r.value("ok", false)) selected_ = r["result"].value("name", std::string());
+    if (r.value("ok", false)) { selected_ = r["result"].value("name", std::string()); multi_.clear(); }
 }
 
 void Editor::update_orbit_camera(CommandContext& ctx) {
@@ -157,7 +200,7 @@ void Editor::build_layout() {
 void Editor::main_menu(CommandContext& ctx) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene")) { ctx.scene.clear(); ctx.scene.camera(); selected_.clear(); }
+            if (ImGui::MenuItem("New Scene")) { ctx.scene.clear(); ctx.scene.camera(); selected_.clear(); multi_.clear(); }
             ImGui::SetNextItemWidth(200);
             ImGui::InputText("##path", save_path_, sizeof(save_path_));
             if (ImGui::MenuItem("Open")) {
@@ -167,8 +210,13 @@ void Editor::main_menu(CommandContext& ctx) {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !undo_.empty())) do_undo(ctx);
+            if (ImGui::MenuItem("Redo", "Ctrl+Shift+Z", false, !redo_.empty())) do_redo(ctx);
+            ImGui::Separator();
             if (ImGui::MenuItem("Delete Selected", "Del", false, !selected_.empty())) {
-                ctx.scene.destroy(selected_); selected_.clear();
+                for (auto& s : multi_) ctx.scene.destroy(s);
+                ctx.scene.destroy(selected_);
+                selected_.clear(); multi_.clear();
             }
             ImGui::EndMenu();
         }
@@ -297,11 +345,30 @@ void Editor::panel_hierarchy(CommandContext& ctx) {
     if (ImGui::BeginChild("tree")) {
         for (auto [e, n] : ctx.scene.registry.view<Name>().each()) {
             if (f[0] && !ImStristr(n.value.c_str(), nullptr, f, nullptr)) continue;
-            if (ImGui::Selectable(n.value.c_str(), n.value == selected_))
-                selected_ = n.value;
+            if (ImGui::Selectable(n.value.c_str(), is_selected(n.value))) {
+                if (ImGui::GetIO().KeyCtrl && !selected_.empty()) {
+                    auto it = std::find(multi_.begin(), multi_.end(), n.value);
+                    if (n.value == selected_) {
+                        // demote primary; promote first extra if any
+                        selected_ = multi_.empty() ? std::string() : multi_.front();
+                        if (!multi_.empty()) multi_.erase(multi_.begin());
+                    } else if (it != multi_.end()) {
+                        multi_.erase(it);
+                    } else {
+                        multi_.push_back(n.value);
+                    }
+                } else {
+                    selected_ = n.value;
+                    multi_.clear();
+                }
+            }
         }
     }
     ImGui::EndChild();
+    if (!multi_.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%d selected  (Ctrl+click)", (int)multi_.size() + 1);
+    }
     ImGui::End();
 }
 
@@ -315,7 +382,7 @@ void Editor::panel_details(CommandContext& ctx) {
 
     ImGui::TextUnformatted(selected_.c_str());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Delete")) { ctx.scene.destroy(selected_); selected_.clear(); ImGui::End(); return; }
+    if (ImGui::SmallButton("Delete")) { ctx.scene.destroy(selected_); selected_.clear(); multi_.clear(); ImGui::End(); return; }
     ImGui::Separator();
 
     if (auto* t = reg.try_get<Transform>(e)) {
@@ -408,13 +475,28 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
         auto& cam = ctx.scene.camera();
         glm::mat4 view = cam.view();
         glm::mat4 proj = cam.proj(win_h_ ? float(win_w_) / win_h_ : 1.0f);
-        glm::mat4 model = t->matrix();
+        glm::mat4 before = t->matrix();
+        glm::mat4 model = before;
         if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
                                  (ImGuizmo::OPERATION)gizmo_op_, (ImGuizmo::MODE)gizmo_mode_,
                                  glm::value_ptr(model))) {
             glm::vec3 tr, rot, sc;
             ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(model), &tr.x, &rot.x, &sc.x);
             t->position = tr; t->euler_deg = rot; t->scale = sc;
+
+            // apply the same world-space delta to every other selected entity
+            if (!multi_.empty()) {
+                glm::mat4 delta = model * glm::inverse(before);
+                for (const std::string& name : multi_) {
+                    entt::entity oe = ctx.scene.find(name);
+                    auto* ot = oe != entt::null ? ctx.scene.registry.try_get<Transform>(oe) : nullptr;
+                    if (!ot) continue;
+                    glm::mat4 nm = delta * ot->matrix();
+                    glm::vec3 otr, orot, osc;
+                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(nm), &otr.x, &orot.x, &osc.x);
+                    ot->position = otr; ot->euler_deg = orot; ot->scale = osc;
+                }
+            }
         }
     }
 }
@@ -512,6 +594,17 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     ImGui::DockSpace(dock, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     ImGui::End();
 
+    // keyboard: undo / redo (only when no text field is focused)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && !io.WantTextInput) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+                io.KeyShift ? do_redo(ctx) : do_undo(ctx);
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+                do_redo(ctx);
+        }
+    }
+
     main_menu(ctx);
     toolbar(ctx);
     status_bar(ctx);
@@ -553,6 +646,8 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
                             14.0f);
         }
     }
+
+    commit_history(ctx);
 }
 
 } // namespace eng
