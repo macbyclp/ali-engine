@@ -1,4 +1,5 @@
 #include "aicontrol/commands.hpp"
+#include "plugin/plugin_host.hpp"
 #include "anim/animation_system.hpp"
 #include "anim/animator.hpp"
 #include "fx/particles.hpp"
@@ -314,6 +315,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
+                if (ctx.plugins) ctx.plugins->update(ctx, dt);
                 update_animators(scene, dt);
                 update_animations(scene, dt);
                 update_particles(scene, dt);
@@ -698,6 +700,26 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             Framebuffer::bind_default(w, h);
             if (!saved) return fail(id, "screenshot write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h}});
+        }
+
+        if (method == "plugin.list")
+            return ok(id, {{"plugins", ctx.plugins ? ctx.plugins->list() : json::array()}});
+        if (method == "plugin.load") {
+            if (!ctx.plugins) return fail(id, "plugin host unavailable");
+            std::string path = p.at("path").get<std::string>();
+            std::string nm = ctx.plugins->load_library(path, ctx);
+            if (nm.empty()) return fail(id, "plugin load failed: " + path);
+            return ok(id, {{"name", nm}});
+        }
+
+        // plugins get a shot at anything the core engine does not recognise
+        if (ctx.plugins) {
+            if (auto r = ctx.plugins->dispatch(ctx, method, p)) {
+                json out = std::move(*r);
+                if (!out.contains("id")) out["id"] = id;
+                if (!out.contains("ok")) out["ok"] = true;
+                return out;
+            }
         }
 
         return fail(id, "unknown method: " + method);

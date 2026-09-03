@@ -13,6 +13,8 @@
 
 namespace eng {
 
+class PluginHost;
+
 struct CommandContext {
     Scene& scene;
     Renderer& renderer;
@@ -26,6 +28,7 @@ struct CommandContext {
     bool quit = false;
     bool sim_running = false;  // when true, main loop steps physics every frame
     std::unordered_map<std::string, nlohmann::json> checkpoints;
+    PluginHost* plugins = nullptr;   // optional; handles unknown methods + per-frame ticks
 };
 
 // Executes one request on the main thread, returns the response object.

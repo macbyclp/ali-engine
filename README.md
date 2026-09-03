@@ -217,12 +217,15 @@ built for exactly that.
 ## Roadmap
 
 Done: core · PBR + CSM · Jolt physics · behaviours · culling/instancing · textures ·
-scene graph + prefabs · skeletal animation + blend · point/spot lights · character +
-navigation · particles/audio/post · UI + text · AI observation + gameplay layer ·
-Unreal-style editor · Blueprint visual scripting.
+scene graph + prefabs · skeletal animation + blend + **state machine** · point/spot
+lights + **spot shadows** · character + navigation (**with path smoothing**) ·
+particles/audio (**+ mixer buses**)/post · **SSAO** · UI + text · **procedural mesh /
+CSG** · **heightmap terrain** · AI observation + gameplay layer · Unreal-style editor
+(**undo/redo, multi-select**) · Blueprint visual scripting · **plugin API**
+([docs](docs/PLUGINS.md)).
 
-Deferred / next: Vulkan RHI · spot & point shadows · animation state machine · terrain ·
-SSAO · Recast navmesh · procedural mesh / CSG · audio buses · plugin / module API.
+Deferred / next: Vulkan RHI · point-light shadows · Recast polygon navmesh ·
+terrain physics collider · cross-platform builds · JS/TS client SDK.
 
 ## License
 

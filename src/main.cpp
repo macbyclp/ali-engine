@@ -11,6 +11,8 @@
 #include "editor/editor.hpp"
 #include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
+#include "plugin/plugin_host.hpp"
+#include "plugin/example_spin.hpp"
 #include "render/framebuffer.hpp"
 #include "render/renderer.hpp"
 #include "scene/scene.hpp"
@@ -67,6 +69,11 @@ int main(int argc, char** argv) {
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
 
+    eng::PluginHost plugins;
+    ctx.plugins = &plugins;
+    plugins.add(std::make_unique<eng::SpinPlugin>(), ctx);
+    plugins.load_dir("plugins", ctx);   // any *.dll / *.so next to the binary
+
     std::unique_ptr<eng::Editor> editor;
     if (editor_mode) editor = std::make_unique<eng::Editor>(window.handle());
 
@@ -119,6 +126,7 @@ int main(int argc, char** argv) {
         if (editor) editor->begin_frame();
 
         bool sim = editor ? editor->wants_play() : ctx.sim_running;
+        plugins.update(ctx, dt);
         eng::update_animators(scene, dt);
         eng::update_animations(scene, dt);
         eng::update_particles(scene, dt);
