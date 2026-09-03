@@ -1,5 +1,6 @@
 #include "audio/audio.hpp"
 #include "core/log.hpp"
+#include <string>
 #include <unordered_map>
 
 #define MA_NO_ENCODING
@@ -13,6 +14,24 @@ struct AudioEngine::Impl {
     bool ready = false;
     uint32_t next = 1;
     std::unordered_map<uint32_t, ma_sound*> sounds;
+    std::unordered_map<uint32_t, std::string> sound_bus;
+    std::unordered_map<std::string, ma_sound_group*> buses;
+    std::unordered_map<std::string, float> bus_gain;
+
+    ma_sound_group* bus(const std::string& name) {
+        if (name.empty() || name == "master") return nullptr;
+        auto it = buses.find(name);
+        if (it != buses.end()) return it->second;
+        auto* g = new ma_sound_group();
+        if (ma_sound_group_init(&engine, 0, nullptr, g) != MA_SUCCESS) {
+            delete g;
+            buses[name] = nullptr;
+            return nullptr;
+        }
+        buses[name] = g;
+        bus_gain[name] = 1.0f;
+        return g;
+    }
 };
 
 AudioEngine::AudioEngine() : p_(std::make_unique<Impl>()) {
@@ -26,17 +45,19 @@ AudioEngine::AudioEngine() : p_(std::make_unique<Impl>()) {
 
 AudioEngine::~AudioEngine() {
     for (auto& [h, s] : p_->sounds) { ma_sound_uninit(s); delete s; }
+    for (auto& [n, g] : p_->buses) { if (g) { ma_sound_group_uninit(g); delete g; } }
     if (p_->ready) ma_engine_uninit(&p_->engine);
 }
 
 bool AudioEngine::ok() const { return p_->ready; }
 
 uint32_t AudioEngine::play(const std::string& file, float volume, bool loop, bool spatial,
-                           const glm::vec3& pos) {
+                           const glm::vec3& pos, const std::string& bus) {
     if (!p_->ready) return 0;
+    ma_sound_group* group = p_->bus(bus);
     auto* s = new ma_sound();
     ma_uint32 flags = MA_SOUND_FLAG_DECODE;
-    if (ma_sound_init_from_file(&p_->engine, file.c_str(), flags, nullptr, nullptr, s) != MA_SUCCESS) {
+    if (ma_sound_init_from_file(&p_->engine, file.c_str(), flags, group, nullptr, s) != MA_SUCCESS) {
         log::error("audio: cannot load %s", file.c_str());
         delete s;
         return 0;
@@ -48,6 +69,7 @@ uint32_t AudioEngine::play(const std::string& file, float volume, bool loop, boo
     ma_sound_start(s);
     uint32_t h = p_->next++;
     p_->sounds[h] = s;
+    if (!bus.empty()) p_->sound_bus[h] = bus;
     return h;
 }
 
@@ -66,11 +88,46 @@ void AudioEngine::stop(uint32_t h) {
     ma_sound_uninit(it->second);
     delete it->second;
     p_->sounds.erase(it);
+    p_->sound_bus.erase(h);
 }
 void AudioEngine::set_listener(const glm::vec3& pos, const glm::vec3& fwd) {
     if (!p_->ready) return;
     ma_engine_listener_set_position(&p_->engine, 0, pos.x, pos.y, pos.z);
     ma_engine_listener_set_direction(&p_->engine, 0, fwd.x, fwd.y, fwd.z);
+}
+
+void AudioEngine::set_bus_volume(const std::string& bus, float v) {
+    if (!p_->ready) return;
+    if (bus.empty() || bus == "master") {
+        ma_engine_set_volume(&p_->engine, v);
+        p_->bus_gain["master"] = v;
+        return;
+    }
+    if (ma_sound_group* g = p_->bus(bus)) {
+        ma_sound_group_set_volume(g, v);
+        p_->bus_gain[bus] = v;
+    }
+}
+float AudioEngine::bus_volume(const std::string& bus) const {
+    std::string k = (bus.empty() ? "master" : bus);
+    auto it = p_->bus_gain.find(k);
+    return it == p_->bus_gain.end() ? 1.0f : it->second;
+}
+void AudioEngine::stop_bus(const std::string& bus) {
+    for (auto it = p_->sounds.begin(); it != p_->sounds.end();) {
+        auto b = p_->sound_bus.find(it->first);
+        bool match = bus.empty() || bus == "master" ||
+                     (b != p_->sound_bus.end() && b->second == bus);
+        if (match) {
+            ma_sound_stop(it->second);
+            ma_sound_uninit(it->second);
+            delete it->second;
+            p_->sound_bus.erase(it->first);
+            it = p_->sounds.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 } // namespace eng
