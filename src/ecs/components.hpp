@@ -47,8 +47,9 @@ struct Transform {
 // Which primitive/asset to draw + its PBR material.
 // Texture keys: a file path, or "builtin:<checker|grid|uv|normal|bumps>".
 struct MeshRenderer {
-    std::string primitive = "cube";      // cube | sphere | plane | gltf
-    std::string gltf_path;               // used when primitive == "gltf"
+    std::string primitive = "cube";      // cube | sphere | plane | gltf | skinned | procedural
+    std::string gltf_path;               // used when primitive == "gltf" / "skinned"
+    nlohmann::json build;                // procedural recipe (primitive == "procedural")
 
     glm::vec3 base_color{0.8f};
     float metallic = 0.0f;

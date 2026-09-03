@@ -1,0 +1,238 @@
+{
+  "entities": [
+    {
+      "mesh": {
+        "base_color": [
+          0.8999999761581421,
+          0.30000001192092896,
+          0.4000000059604645
+        ],
+        "build": [
+          {
+            "shape": "box",
+            "size": [
+              2.4,
+              0.8,
+              0.8
+            ]
+          },
+          {
+            "op": "union",
+            "shape": "box",
+            "size": [
+              0.8,
+              2.4,
+              0.8
+            ]
+          }
+        ],
+        "metallic": 0.0,
+        "primitive": "procedural",
+        "roughness": 0.800000011920929
+      },
+      "name": "plus",
+      "transform": {
+        "position": [
+          0.0,
+          1.2000000476837158,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "mesh": {
+        "base_color": [
+          0.4000000059604645,
+          0.699999988079071,
+          0.8999999761581421
+        ],
+        "build": [
+          {
+            "radius": 1.3,
+            "shape": "sphere"
+          },
+          {
+            "op": "intersect",
+            "shape": "box",
+            "size": [
+              1.6,
+              1.6,
+              1.6
+            ]
+          }
+        ],
+        "metallic": 0.0,
+        "primitive": "procedural",
+        "roughness": 0.800000011920929
+      },
+      "name": "lens",
+      "transform": {
+        "position": [
+          2.0,
+          1.2000000476837158,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "mesh": {
+        "base_color": [
+          0.800000011920929,
+          0.5,
+          0.30000001192092896
+        ],
+        "build": [
+          {
+            "shape": "box",
+            "size": [
+              2,
+              2,
+              2
+            ]
+          },
+          {
+            "height": 3,
+            "op": "subtract",
+            "radius": 0.7,
+            "shape": "cylinder"
+          }
+        ],
+        "metallic": 0.10000000149011612,
+        "primitive": "procedural",
+        "roughness": 0.5
+      },
+      "name": "holed",
+      "transform": {
+        "position": [
+          -2.0,
+          1.2000000476837158,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "mesh": {
+        "base_color": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ],
+        "metallic": 0.0,
+        "primitive": "cube",
+        "roughness": 0.800000011920929
+      },
+      "name": "sun",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "mesh": {
+        "base_color": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ],
+        "base_color_map": "builtin:checker",
+        "metallic": 0.0,
+        "primitive": "plane",
+        "roughness": 0.800000011920929
+      },
+      "name": "floor",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          16.0,
+          1.0,
+          16.0
+        ]
+      }
+    },
+    {
+      "camera": {
+        "fov_deg": 60.0,
+        "position": [
+          0.0,
+          2.0,
+          6.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "name": "camera",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ]
+}

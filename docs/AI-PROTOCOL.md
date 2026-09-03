@@ -36,8 +36,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `scene.reset` | — | — |
 | `scene.state` | — | tüm sahne (JSON) |
 | `entity.list` | — | `{names:[...]}` |
-| `entity.spawn` | `{name?, primitive?, gltf_path?, position?, rotation?, scale?, <material>, body?}` | `{name}` |
+| `entity.spawn` | `{name?, primitive?, gltf_path?, build?, position?, rotation?, scale?, <material>, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
+| `mesh.build` | `{name, build:[step,...]}` | `{triangles}` — prosedürel mesh / CSG (aşağı bkz.) |
 | `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
 | `entity.setMaterial` | `{name, <material>}` | — |
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
@@ -118,6 +119,22 @@ kazanır) ve `blend` saniyede crossfade yapar. `from` boş/`"*"` = her durumdan.
 `exit_time` (0–1): geçiş için klibin o orana ulaşması da gerekir. Parametreleri
 `animator.param` veya davranış aksiyonu `animParam {target?, param, value}` ayarlar.
 Grafik + parametreler sahne JSON'una `animator` bloğu olarak serialize edilir.
+
+### Prosedürel mesh + CSG (`primitive: "procedural"`)
+`entity.spawn {build: [...]}` veya `mesh.build {name, build: [...]}`. `build` bir
+adım dizisidir; ilk adım tabanı kurar, sonrakiler `op` ile birleşir:
+`add`/`union`, `subtract`, `intersect` (BSP boolean) veya `merge` (ucuz birleştirme).
+Her adım bir `shape` + parametreleri + opsiyonel `translate`/`rotate`/`scale`:
+- `box {size:[x,y,z]}`
+- `sphere {radius, segments?}`
+- `cylinder {radius, height, segments?, capped?}`
+- `cone {radius, height, segments?}`
+- `torus {radius, tube, segments?, sides?}`
+- `plane {size:[x,z], subdiv?}`
+
+Örnek — delikli blok: `[{"shape":"box","size":[2,2,2]},
+{"op":"subtract","shape":"cylinder","radius":0.6,"height":3}]`. Tarif sahne
+JSON'una `mesh.build` olarak serialize edilir; yeniden yüklenince yeniden üretilir.
 
 ### UI (`kind`)
 `panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),
