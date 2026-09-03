@@ -138,6 +138,7 @@ struct PunctualLight {
     glm::vec3 direction{0.0f, -1.0f, 0.0f};
     float inner_deg = 20.0f;
     float outer_deg = 30.0f;
+    bool cast_shadows = true;   // spot lights only, atlas is limited to the first few
 };
 
 // Physics body. Shape defaults are derived from MeshRenderer::primitive + Transform::scale

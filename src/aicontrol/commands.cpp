@@ -99,6 +99,30 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (p.contains("parent"))
                 scene.registry.emplace<Hierarchy>(e, Hierarchy{p["parent"].get<std::string>()});
 
+            if (p.contains("light") && p["light"].is_object()) {
+                const json& jl = p["light"];
+                std::string lt = jl.value("type", std::string("point"));
+                if (lt == "directional") {
+                    DirectionalLight dl;
+                    dl.direction = v3(jl.value("direction", json()), dl.direction);
+                    dl.color = v3(jl.value("color", json()), dl.color);
+                    dl.intensity = jl.value("intensity", dl.intensity);
+                    scene.registry.emplace<DirectionalLight>(e, dl);
+                } else {
+                    PunctualLight pl;
+                    pl.spot = (lt == "spot");
+                    pl.color = v3(jl.value("color", json()), pl.color);
+                    pl.intensity = jl.value("intensity", pl.intensity);
+                    pl.range = jl.value("range", pl.range);
+                    pl.direction = v3(jl.value("direction", json()), pl.direction);
+                    pl.inner_deg = jl.value("inner_deg", pl.inner_deg);
+                    pl.outer_deg = jl.value("outer_deg", pl.outer_deg);
+                    pl.cast_shadows = jl.value("cast_shadows", pl.cast_shadows);
+                    scene.registry.emplace<PunctualLight>(e, pl);
+                }
+                scene.registry.remove<MeshRenderer>(e);   // a light isn't a mesh
+            }
+
             if (p.contains("animation")) {
                 const json& ja = p["animation"];
                 AnimationPlayer ap;
@@ -221,6 +245,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 pl.direction = v3(p.value("direction", json()), pl.direction);
                 pl.inner_deg = p.value("inner_deg", pl.inner_deg);
                 pl.outer_deg = p.value("outer_deg", pl.outer_deg);
+                pl.cast_shadows = p.value("cast_shadows", pl.cast_shadows);
                 if (p.contains("position"))
                     apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
             } else {

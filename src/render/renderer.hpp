@@ -28,6 +28,7 @@ public:
 
 private:
     static constexpr int kCascades = 3;
+    static constexpr int kSpotShadows = 4;   // 2x2 atlas tiles for spot lights
 
     Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
     Shader ssao_, ssao_blur_;
@@ -35,6 +36,8 @@ private:
     std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
     unsigned csm_fbo_ = 0, csm_tex_ = 0;
     int csm_size_ = 2048;
+    unsigned spot_fbo_ = 0, spot_atlas_ = 0;
+    int spot_atlas_size_ = 2048;
 
     // SSAO: full-res depth prepass -> half-res AO -> blur
     unsigned depth_fbo_ = 0, depth_tex_ = 0;
