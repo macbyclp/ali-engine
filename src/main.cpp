@@ -6,6 +6,7 @@
 #include "behavior/behavior_system.hpp"
 #include "fx/particles.hpp"
 #include "game/gamestate.hpp"
+#include "input/input.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 #include "editor/editor.hpp"
@@ -69,6 +70,11 @@ int main(int argc, char** argv) {
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
 
+    eng::InputSystem input;
+    input.attach(headless ? nullptr : window.handle());
+    behaviors.set_input(&input);
+    ctx.input = &input;
+
     eng::PluginHost plugins;
     ctx.plugins = &plugins;
     plugins.add(std::make_unique<eng::SpinPlugin>(), ctx);
@@ -126,6 +132,7 @@ int main(int argc, char** argv) {
         if (editor) editor->begin_frame();
 
         bool sim = editor ? editor->wants_play() : ctx.sim_running;
+        input.update(dt);
         plugins.update(ctx, dt);
         eng::update_animators(scene, dt);
         eng::update_animations(scene, dt);

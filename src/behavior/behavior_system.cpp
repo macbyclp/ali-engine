@@ -167,11 +167,21 @@ void BehaviorSystem::run_rules(Scene& scene, PhysicsSystem& physics, GameState& 
                                std::vector<json>& to_spawn) {
     auto* b = scene.registry.try_get<Behavior>(self);
     if (!b || !b->rules.is_array()) return;
+    const std::string trig = trigger;
     for (const json& rule : b->rules) {
-        if (rule.value("on", std::string()) != trigger) continue;
-        if (std::string(trigger) == "collision") {
+        if (rule.value("on", std::string()) != trig) continue;
+        if (trig == "collision") {
             std::string want = rule.value("with", std::string());
             if (!want.empty() && want != other) continue;
+        }
+        if (trig == "input" || trig == "inputPressed" || trig == "inputReleased") {
+            if (!input_) continue;
+            std::string act = rule.value("action", std::string());
+            if (act.empty()) continue;
+            bool hit = (trig == "input")          ? input_->down(act)
+                     : (trig == "inputPressed")   ? input_->pressed(act)
+                                                  : input_->released(act);
+            if (!hit) continue;
         }
         if (rule.contains("if") && !gs.check(rule["if"])) continue;
         run_actions(scene, physics, gs, self, rule.value("do", json::array()), other, dt,
@@ -219,6 +229,11 @@ void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, GameState& gs, f
             b->started = true;
         }
         run_rules(scene, physics, gs, e, "tick", "", dt, to_destroy, to_spawn);
+        if (input_) {
+            run_rules(scene, physics, gs, e, "input", "", dt, to_destroy, to_spawn);
+            run_rules(scene, physics, gs, e, "inputPressed", "", dt, to_destroy, to_spawn);
+            run_rules(scene, physics, gs, e, "inputReleased", "", dt, to_destroy, to_spawn);
+        }
     }
 
     for (auto e : to_destroy)

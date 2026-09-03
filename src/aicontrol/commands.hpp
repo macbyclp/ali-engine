@@ -2,6 +2,7 @@
 #include "audio/audio.hpp"
 #include "behavior/behavior_system.hpp"
 #include "game/gamestate.hpp"
+#include "input/input.hpp"
 #include "nav/navgrid.hpp"
 #include "physics/physics_system.hpp"
 #include "render/framebuffer.hpp"
@@ -29,6 +30,7 @@ struct CommandContext {
     bool sim_running = false;  // when true, main loop steps physics every frame
     std::unordered_map<std::string, nlohmann::json> checkpoints;
     PluginHost* plugins = nullptr;   // optional; handles unknown methods + per-frame ticks
+    InputSystem* input = nullptr;    // optional; named-action input for gameplay
 };
 
 // Executes one request on the main thread, returns the response object.
