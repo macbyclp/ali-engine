@@ -50,8 +50,9 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 ## Features
 
 **Rendering**
-- Metallic-roughness PBR (Cook-Torrance), procedural-sky IBL approximation
-- 3-cascade directional shadow maps + spot-light shadow atlas (PCF)
+- Metallic-roughness PBR (Cook-Torrance)
+- Image-based lighting from equirect HDRIs (sky + reflections + ambient), procedural-sky fallback
+- Shadows: 3-cascade directional CSM · spot-light atlas · omnidirectional point-light cube maps (all PCF)
 - SSAO (depth prepass → hemisphere kernel → blur, ambient-only)
 - HDR pipeline: RGBA16F target, ACES tonemap, bloom, exposure, vignette
 - Point / spot lights (forward, up to 16), attenuation, soft spot cones
@@ -63,10 +64,12 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 **Simulation & gameplay**
 - Jolt Physics — rigid bodies, ray casts, contact events, `CharacterVirtual` controller
+- Sensor / trigger volumes with `enter` / `exit` events; heightfield terrain colliders
+- Named-action input — keyboard / mouse / gamepad, or virtual input the AI drives (same game, human or agent)
 - Grid navmesh + 8-way A* with line-of-sight path smoothing
 - Skeletal animation — clip playback, TRS-level cross-fade, GPU skinning (128 bones)
 - Animation state machine — states, conditions, triggers, auto-blend
-- Data-driven behaviours — `on: start/tick/collision/event` → actions, conditions, timers
+- Data-driven behaviours — `on: start/tick/collision/enter/exit/event/input` → actions, conditions, timers
 - Global game state store, checkpoints (`checkpoint.save/restore`)
 - CPU particle system (additive billboards), spatial audio (miniaudio) with mixer buses
 - Screen-space UI — panels, text (stb_truetype), bars, 9 anchors
