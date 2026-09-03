@@ -60,7 +60,20 @@ void PhysicsSystem::sync(Scene& scene) {
     for (auto [e, wt, rb] : reg.view<WorldTransform, RigidBody>().each()) {
         if (rb.registered) continue;
         const MeshRenderer* mr = reg.try_get<MeshRenderer>(e);
-        rb.handle = world_.add_body(describe(wt.matrix, rb, mr));
+        BodyDesc bd = describe(wt.matrix, rb, mr);
+        // A terrain entity gets a collider matching its heightfield (always static).
+        if (const TerrainComp* tc = reg.try_get<TerrainComp>(e)) {
+            const TerrainData& td = tc->data;
+            if ((int)td.heights.size() == td.resolution * td.resolution && td.resolution >= 2) {
+                bd.type = BodyType::Static;
+                bd.shape = "heightfield";
+                bd.hf_samples = td.heights.data();
+                bd.hf_count = td.resolution;
+                bd.hf_size = td.size;
+                bd.hf_height = td.height;
+            }
+        }
+        rb.handle = world_.add_body(bd);
         rb.registered = true;
         handle_to_entity_[rb.handle] = e;
     }
@@ -80,8 +93,56 @@ void PhysicsSystem::sync(Scene& scene) {
     }
 }
 
+void PhysicsSystem::sync_joints(Scene& scene) {
+    auto& reg = scene.registry;
+    auto body_of = [&](const std::string& nm) -> uint32_t {
+        auto e = scene.find(nm);
+        if (e == entt::null) return 0;
+        auto* rb = reg.try_get<RigidBody>(e);
+        return (rb && rb->registered) ? rb->handle : 0;
+    };
+
+    for (auto [e, j] : reg.view<Joint>().each()) {
+        if (j.registered) continue;
+        uint32_t ha = body_of(j.a);
+        uint32_t hb = j.b.empty() ? 0 : body_of(j.b);
+        if (!ha) continue;                       // body a not ready yet; retry next sync
+        if (!j.b.empty() && !hb) continue;
+        JointDesc d;
+        d.type = j.type;
+        d.body_a = ha;
+        d.body_b = hb;
+        d.point = j.point;
+        d.axis = j.axis;
+        d.min_dist = j.min;
+        d.max_dist = j.max;
+        d.length = j.length;
+        d.stiffness = j.stiffness;
+        d.damping = j.damping;
+        j.handle = world_.create_joint(d);
+        j.registered = j.handle != 0;
+        if (j.registered) joint_handles_.insert(j.handle);
+    }
+
+    std::unordered_set<uint32_t> alive;
+    for (auto [e, j] : reg.view<Joint>().each())
+        if (j.registered) alive.insert(j.handle);
+    for (auto it = joint_handles_.begin(); it != joint_handles_.end();) {
+        if (!alive.count(*it)) { world_.remove_joint(*it); it = joint_handles_.erase(it); }
+        else ++it;
+    }
+}
+
+void PhysicsSystem::clear() {
+    world_.reset();
+    handle_to_entity_.clear();
+    joint_handles_.clear();
+    character_handles_.clear();
+}
+
 void PhysicsSystem::step(Scene& scene, float dt, int substeps) {
     sync(scene);
+    sync_joints(scene);
     substeps = glm::clamp(substeps, 1, 32);
     for (int i = 0; i < substeps; ++i) world_.step(dt / substeps);
 
@@ -103,6 +164,17 @@ void PhysicsSystem::teleport(Scene& scene, const std::string& name) {
     if (!rb || !t || !rb->registered) return;
     world_.set_transform(rb->handle, t->position, glm::quat(glm::radians(t->euler_deg)));
     world_.set_linear_velocity(rb->handle, glm::vec3(0));
+}
+
+void PhysicsSystem::rebuild_body(Scene& scene, const std::string& name) {
+    auto e = scene.find(name);
+    if (e == entt::null) return;
+    auto* rb = scene.registry.try_get<RigidBody>(e);
+    if (!rb || !rb->registered) return;
+    world_.remove_body(rb->handle);
+    handle_to_entity_.erase(rb->handle);
+    rb->registered = false;
+    sync(scene);
 }
 
 void PhysicsSystem::impulse(const std::string& name, Scene& scene, const glm::vec3& j) {

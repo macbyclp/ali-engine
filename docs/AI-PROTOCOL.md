@@ -78,6 +78,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `ui.remove` | `{name}` | — |
 | `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
 | `observe.entities` | — | `{entities:[{name,position,distance,in_view,screen}]}` |
+| `observe.pick` | `{screen:[x,y]}` (piksel) veya `{ndc:[x,y]}`, `width?`, `height?`, `max_distance?` | `{hit, entity?, point, normal, distance}` — kameradan ışın; önce fizik gövdeleri, gövdesiz meshler için sınır-küresi |
 | `state.set` / `state.get` / `state.list` / `state.clear` | `{key?, value?}` | — / `{value}` / tüm state / — |
 | `timer.after` | `{seconds, event}` | — tek seferlik → event |
 | `checkpoint.save` / `checkpoint.restore` | `{name?}` | — (sahne + state anlık görüntüsü) |
@@ -89,11 +90,21 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `physics.setGravity` | `{gravity:[x,y,z]}` | — |
 | `physics.getGravity` | — | `{gravity}` |
 | `physics.raycast` | `{origin, direction, max_distance?}` | `{hit, point?, normal?, distance?, entity?}` |
+| `physics.overlapSphere` | `{center, radius}` | `{entities:[isim]}` — broad-phase AABB yaklaşımı |
+| `physics.spherecast` | `{origin, direction, radius, max_distance?}` | `{hit, entity?, point?, normal?, distance?}` — Jolt CastShape |
+| `joint.create` | `{a, b?, type, point?, axis?, min?, max?, length?, stiffness?, damping?}` | `{a, b, type}` — `b` boş = dünyaya sabitle |
+| `joint.remove` | `{a?}` veya `{b?}` (ikisi de yoksa hepsi) | `{removed:N}` |
 | `behavior.set` | `{name, behaviors:[...]}` | — |
 | `behavior.get` | `{name}` | `{rules}` |
 | `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
+| `observe.segment` | `{path?, width?, height?}` | `{colorKey:{"idx":name}, colors:{"r,g,b":name}, path, width, height}` — her mesh düz benzersiz renk (entity kimliği) |
+| `observe.depth` | `{path?, width?, height?, near?, far?}` | `{path, width, height, near, far}` — lineer derinlik greyscale (yakın = beyaz); near/far verilmezse görünür geometriye oturtulur |
+| `observe.describe` | — | `{camera:{position,forward}, entities:[{name,kind,position,size,on_screen}], relations:[{a,rel,b}]}` — LLM için sahne özeti |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
+| `record.start` | `{path?}` | `{path}` — bundan sonraki her istek satırını dosyaya yazar |
+| `record.stop` | — | `{path}` |
+| `record.play` | `{path}` | `{played, failed}` — kaydı yeniden oynatır (fizik dünyası önce sıfırlanır → deterministik) |
 | `quit` | — | — |
 
 ### Davranış (`behavior`)
@@ -184,7 +195,24 @@ edemez, yani aynı oyunu bir insan pencerede, bir AI de JSON kanalından oynayab
 `terrain.create` fraktal-gürültü heightmap üretir (kare, orijin merkezli, kenara
 doğru ada-sönümü). `terrain.sculpt` fırçayla yükseltir/alçaltır/yumuşatır/düzler.
 Sahne JSON'una gürültü parametreleri olarak yazılır; sculpt edildiyse `heights`
-dizisi de eklenir (yeniden yüklemede aynen gelir). Fizik çarpışması yok (henüz).
+dizisi de eklenir (yeniden yüklemede aynen gelir).
+
+**Fizik çarpışması:** terrain entity'sine bir `body` eklenirse (herhangi bir tip —
+her zaman static'e çevrilir) heightmap'e birebir uyan bir Jolt `HeightFieldShape`
+collider kurulur, böylece cisimler zeminin üstüne oturur. `terrain.sculpt`
+sonrası collider otomatik yeniden üretilir.
+
+### Kısıtlar (`joint` bloğu)
+`joint.create` iki gövde arasında bir Jolt kısıtı kurar (entity `a` üzerinde
+saklanır, `a` bloğuna serialize olur). `b` boşsa dünyaya sabitlenir. `type`:
+- `hinge` — `point` (dünya) ekseninde `axis` etrafında döner (kapı, sarkaç)
+- `distance` — sabit çubuk, uzunluk `[min, max]` arası kısıtlı
+- `spring` — `distance` + yay; `length` dinlenme boyu, `stiffness` Hz, `damping`
+- `fixed` — göreli konum + yönelimi kilitler
+- `point` — `point` noktasında top mafsal, yönelim serbest
+
+Her gövdenin bir `RigidBody`'si olmalı. Gövde a hazır değilse kısıt sonraki
+`world.step`'te kurulur. `joint.remove {a}` / `{b}` ilgili kısıtları siler.
 
 ### Işık (`light` bloğu)
 `entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:
@@ -207,6 +235,26 @@ sahneyi kur → `world.step` → `observe.screenshot`. Sürekli simülasyon içi
 
 `primitive`: `cube` \| `sphere` \| `plane` \| `gltf` (+ `gltf_path`).
 Vektörler `[x,y,z]`; `scale` tek sayı da olabilir. `rotation` XYZ derece.
+
+### Algı (perception)
+`observe.pick` bir ekran noktasından sahneye ışın atar (fizik gövdeleri + gövdesiz
+meshlerin sınır küresi). `observe.segment` her mesh'i düz benzersiz bir renkle
+çizer; `colors` sözlüğü `"r,g,b" -> isim` eşler (renkler Knuth çarpımsal hash ile
+dağıtılır, arka plan `0,0,0`). `observe.depth` lineer derinliği greyscale yazar
+(yakın = beyaz); `near`/`far` verilmezse görünür geometriye göre otomatik oturur.
+Hepsi `ctx.offscreen`'e çizer, sonra default framebuffer'a döner.
+
+`observe.describe` metin tabanlı bir sahne özeti verir: kamera, her entity için
+`kind` (mesh/light/body/terrain/camera), dünya-AABB `size`, `on_screen`; ve
+yakın entity çiftleri arasında basit `relations` (`on`, `above`, `inside`,
+`left_of`, `near`). İlişki mantığı kaba AABB çıkarımıdır, kesin değildir.
+
+### Kayıt / tekrar (record)
+`record.start` açıkken `dispatch()` gelen her istek satırını (JSONL) dosyaya
+ekler (`record.*` ve `quit` hariç). `record.play` dosyayı satır satır yeniden
+işler; önce `PhysicsWorld` tamamen sıfırlanır, böylece aynı komut akışı bit-bit
+aynı sonucu verir. Kayıt dosyasını doğrudan yeni bir motor sürecine stdin olarak
+da verebilirsin.
 
 ## AI döngüsü (tipik)
 1. `scene.load` veya `scene.reset`

@@ -13,7 +13,7 @@ enum class BodyType { Static, Dynamic, Kinematic };
 
 struct BodyDesc {
     BodyType type = BodyType::Dynamic;
-    std::string shape = "box";        // box | sphere
+    std::string shape = "box";        // box | sphere | heightfield
     glm::vec3 half_extents{0.5f};
     float radius = 0.5f;
     float mass = 1.0f;
@@ -22,6 +22,28 @@ struct BodyDesc {
     glm::vec3 position{0};
     glm::quat rotation{1, 0, 0, 0};
     bool sensor = false;   // overlaps are reported, nothing is pushed
+
+    // heightfield (shape == "heightfield"): a real collider matching a TerrainData
+    // heightmap. `hf_samples` is `hf_count * hf_count` normalized 0..1 values,
+    // row-major over Z then X, spanning `hf_size` (square, centred on the body),
+    // vertical range 0..`hf_height`. Pointer is only read during add_body().
+    const float* hf_samples = nullptr;
+    int hf_count = 0;
+    float hf_size = 0.0f;
+    float hf_height = 1.0f;
+};
+
+struct JointDesc {
+    std::string type = "point";    // hinge | distance | spring | fixed | point
+    uint32_t body_a = 0;
+    uint32_t body_b = 0;           // 0 = pinned to the world
+    glm::vec3 point{0};
+    glm::vec3 axis{0, 1, 0};
+    float min_dist = 0.0f;
+    float max_dist = 0.0f;
+    float length = -1.0f;          // spring rest length; <0 = current separation
+    float stiffness = 0.0f;        // spring frequency (Hz)
+    float damping = 0.2f;
 };
 
 struct RayHit {
@@ -41,6 +63,8 @@ public:
     PhysicsWorld(const PhysicsWorld&) = delete;
     PhysicsWorld& operator=(const PhysicsWorld&) = delete;
 
+    void reset();   // tear down every body/joint/character; fresh deterministic world
+
     uint32_t add_body(const BodyDesc& desc);
     void remove_body(uint32_t handle);
     void set_transform(uint32_t handle, const glm::vec3& pos, const glm::quat& rot);
@@ -53,6 +77,16 @@ public:
 
     void step(float dt);
     RayHit raycast(const glm::vec3& origin, const glm::vec3& dir, float max_distance) const;
+
+    // Constraints. Returns a handle (0 = failed); remove_joint frees it.
+    uint32_t create_joint(const JointDesc& desc);
+    void remove_joint(uint32_t handle);
+
+    // Shape queries. overlap_sphere returns body handles whose shape intersects
+    // the sphere; sphere_cast sweeps a sphere and returns the first hit.
+    std::vector<uint32_t> overlap_sphere(const glm::vec3& center, float radius) const;
+    RayHit sphere_cast(const glm::vec3& origin, const glm::vec3& dir, float radius,
+                       float max_distance) const;
 
     // Contact pairs (handle,handle) detected during the most recent step(s).
     std::vector<std::pair<uint32_t, uint32_t>> drain_contacts();
