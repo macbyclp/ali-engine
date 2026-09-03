@@ -1,6 +1,7 @@
 #pragma once
 #include "anim/animation.hpp"
 #include "assets/texture.hpp"
+#include "geo/terrain.hpp"
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -120,6 +121,12 @@ struct AnimatorController {
         for (auto& s : states) if (s.name == n) return &s;
         return nullptr;
     }
+};
+
+// Heightmap terrain. Pairs with a MeshRenderer whose primitive == "terrain"
+// (that carries the material); this holds the shape.
+struct TerrainComp {
+    TerrainData data;
 };
 
 struct DirectionalLight {

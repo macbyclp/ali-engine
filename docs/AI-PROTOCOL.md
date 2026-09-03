@@ -39,6 +39,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `entity.spawn` | `{name?, primitive?, gltf_path?, build?, position?, rotation?, scale?, <material>, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
 | `mesh.build` | `{name, build:[step,...]}` | `{triangles}` — prosedürel mesh / CSG (aşağı bkz.) |
+| `terrain.create` | `{name?, size?, resolution?, height?, octaves?, frequency?, seed?, <material>}` | `{name, resolution}` |
+| `terrain.sculpt` | `{name, at:[x,_,z], radius?, strength?, mode?}` — mode: `raise`\|`lower`\|`smooth`\|`flatten` | — |
+| `terrain.height` | `{name, at:[x,_,z]}` | `{height}` — o noktadaki zemin yüksekliği |
 | `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
 | `entity.setMaterial` | `{name, <material>}` | — |
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
@@ -144,6 +147,12 @@ Sahne JSON'unun üst düzey `environment` objesi frame ayarlarını tutar; `rend
 ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (~0.6),
 `ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
+
+### Terrain (`terrain` bloğu)
+`terrain.create` fraktal-gürültü heightmap üretir (kare, orijin merkezli, kenara
+doğru ada-sönümü). `terrain.sculpt` fırçayla yükseltir/alçaltır/yumuşatır/düzler.
+Sahne JSON'una gürültü parametreleri olarak yazılır; sculpt edildiyse `heights`
+dizisi de eklenir (yeniden yüklemede aynen gelir). Fizik çarpışması yok (henüz).
 
 ### Işık (`light` bloğu)
 `entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:

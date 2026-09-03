@@ -161,6 +161,47 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int tris = mr.gpu ? mr.gpu->index_count() / 3 : 0;
             return ok(id, {{"triangles", tris}});
         }
+        if (method == "terrain.create") {
+            std::string name = p.value("name", std::string("terrain"));
+            auto e = scene.find(name);
+            if (e == entt::null) e = scene.create(name);
+            TerrainComp tc;
+            tc.data.size = p.value("size", tc.data.size);
+            tc.data.resolution = std::clamp(p.value("resolution", tc.data.resolution), 8, 384);
+            tc.data.height = p.value("height", tc.data.height);
+            tc.data.octaves = p.value("octaves", tc.data.octaves);
+            tc.data.frequency = p.value("frequency", tc.data.frequency);
+            tc.data.seed = p.value("seed", tc.data.seed);
+            tc.data.regenerate_noise();
+            scene.registry.emplace_or_replace<TerrainComp>(e, std::move(tc));
+            auto& mr = scene.registry.get_or_emplace<MeshRenderer>(e);
+            mr.primitive = "terrain";
+            apply_material(mr, p);
+            if (mr.base_color == glm::vec3(0.8f)) mr.base_color = {0.42f, 0.48f, 0.34f};
+            scene.registry.get_or_emplace<Transform>(e);
+            scene.resolve_gpu_meshes();
+            return ok(id, {{"name", scene.registry.get<Name>(e).value},
+                           {"resolution", scene.registry.get<TerrainComp>(e).data.resolution}});
+        }
+        if (method == "terrain.sculpt") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* tc = scene.registry.try_get<TerrainComp>(e);
+            if (!tc) return fail(id, "entity has no terrain");
+            glm::vec3 at = v3(p.value("at", p.value("position", json())), glm::vec3(0));
+            tc->data.sculpt(at.x, at.z, p.value("radius", 5.0f), p.value("strength", 1.0f),
+                            p.value("mode", std::string("raise")));
+            scene.resolve_gpu_meshes();
+            return ok(id);
+        }
+        if (method == "terrain.height") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* tc = scene.registry.try_get<TerrainComp>(e);
+            if (!tc) return fail(id, "entity has no terrain");
+            glm::vec3 at = v3(p.value("at", json()), glm::vec3(0));
+            return ok(id, {{"height", tc->data.sample(at.x, at.z)}});
+        }
         if (method == "entity.setParent") {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
