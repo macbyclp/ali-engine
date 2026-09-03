@@ -170,6 +170,111 @@ void Editor::update_orbit_camera(CommandContext& ctx) {
     cam.target = pivot;
 }
 
+// largest world-space axis scale baked into a matrix (columns 0..2)
+static float mat_scale(const glm::mat4& m) {
+    return std::max({glm::length(glm::vec3(m[0])),
+                     glm::length(glm::vec3(m[1])),
+                     glm::length(glm::vec3(m[2]))});
+}
+
+// Left-click in the scene picks the nearest mesh under the cursor. Ctrl+click
+// toggles it in the multi-selection; a click on empty space clears everything.
+void Editor::viewport_pick(CommandContext& ctx) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+    if (ImGuizmo::IsUsing() || ImGuizmo::IsOver()) return;
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) return;
+
+    float nx = 2.0f * io.MousePos.x / std::max(1, win_w_) - 1.0f;
+    float ny = 1.0f - 2.0f * io.MousePos.y / std::max(1, win_h_);
+    auto& cam = ctx.scene.camera();
+    glm::mat4 inv = glm::inverse(cam.proj(win_h_ ? float(win_w_) / win_h_ : 1.0f) * cam.view());
+    glm::vec4 a = inv * glm::vec4(nx, ny, -1.0f, 1.0f);
+    glm::vec4 b = inv * glm::vec4(nx, ny, 1.0f, 1.0f);
+    glm::vec3 o = glm::vec3(a) / a.w;
+    glm::vec3 dir = glm::normalize(glm::vec3(b) / b.w - o);
+
+    std::string hit;
+    float best = 1e30f;
+    for (auto [e, wt, mr] : ctx.scene.registry.view<WorldTransform, MeshRenderer>().each()) {
+        if (!mr.gpu) continue;
+        auto* n = ctx.scene.registry.try_get<Name>(e);
+        if (!n) continue;
+        glm::vec3 c = glm::vec3(wt.matrix * glm::vec4(mr.gpu->bounds_center(), 1.0f));
+        float r = mr.gpu->bounds_radius() * mat_scale(wt.matrix);
+        glm::vec3 oc = o - c;
+        float hb = glm::dot(oc, dir);
+        float disc = hb * hb - (glm::dot(oc, oc) - r * r);
+        if (disc < 0.0f) continue;
+        float t = -hb - std::sqrt(disc);
+        if (t < 0.0f) t = -hb + std::sqrt(disc);
+        if (t < 0.0f || t >= best) continue;
+        best = t; hit = n->value;
+    }
+
+    if (hit.empty()) {
+        if (!io.KeyCtrl) { selected_.clear(); multi_.clear(); }
+        return;
+    }
+    if (io.KeyCtrl && !selected_.empty()) {
+        if (hit == selected_) {
+            selected_ = multi_.empty() ? std::string() : multi_.front();
+            if (!multi_.empty()) multi_.erase(multi_.begin());
+        } else if (auto it = std::find(multi_.begin(), multi_.end(), hit); it != multi_.end()) {
+            multi_.erase(it);
+        } else {
+            multi_.push_back(hit);
+        }
+    } else {
+        selected_ = hit; multi_.clear();
+    }
+}
+
+// F: snap the orbit pivot onto the selection and pull the camera in to frame it.
+void Editor::focus_selected(CommandContext& ctx) {
+    entt::entity e = ctx.scene.find(selected_);
+    if (e == entt::null) return;
+    auto& reg = ctx.scene.registry;
+    auto* wt = reg.try_get<WorldTransform>(e);
+    glm::vec3 p = wt ? wt->position : glm::vec3(0);
+    pivot_[0] = p.x; pivot_[1] = p.y; pivot_[2] = p.z;
+    float r = 1.2f;
+    if (auto* mr = reg.try_get<MeshRenderer>(e); mr && mr->gpu)
+        r = mr->gpu->bounds_radius() * (wt ? mat_scale(wt->matrix) : 1.0f);
+    cam_dist_ = std::max(3.0f, r * 2.5f);
+}
+
+// The scene ships bindings in `input_map`; feed them to the InputSystem when Play
+// starts, drop virtual (AI) holds when it stops. Gameplay reads GLFW directly so
+// keyboard reaches it over any panel.
+void Editor::sync_play_input(CommandContext& ctx) {
+    if (play_ == prev_play_) return;
+    prev_play_ = play_;
+    if (!ctx.input) return;
+    ctx.input->clear_virtual();
+    if (play_)
+        for (auto& [action, keys] : ctx.scene.input_map.items())
+            if (keys.is_array())
+                ctx.input->bind(action, keys.get<std::vector<std::string>>());
+}
+
+void Editor::scan_assets() {
+    auto scan = [](const char* dir, std::vector<std::string>& out) {
+        out.clear();
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec)) return;
+        for (auto& de : fs::directory_iterator(dir, ec))
+            if (de.is_regular_file() && de.path().extension() == ".json")
+                out.push_back(de.path().generic_string());
+        std::sort(out.begin(), out.end());
+    };
+    scan("scenes", asset_scenes_);
+    scan("prefabs", asset_prefabs_);
+    assets_scanned_ = true;
+}
+
 // ---------------- layout ----------------
 void Editor::build_layout() {
     ImGuiID root = ImGui::GetID("EditorDock");
@@ -187,6 +292,7 @@ void Editor::build_layout() {
     ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Left, 0.30f, &banim, &btimeline);
 
     ImGui::DockBuilderDockWindow("Palette", ltop);
+    ImGui::DockBuilderDockWindow("Assets", ltop);
     ImGui::DockBuilderDockWindow("Hierarchy", lbottom);
     ImGui::DockBuilderDockWindow("Details", right);
     ImGui::DockBuilderDockWindow("Blueprint", center);
@@ -302,6 +408,11 @@ void Editor::status_bar(CommandContext& ctx) {
         console_buf_[0] = 0;
         ImGui::SetKeyboardFocusHere(-1);
     }
+    const char* gop = gizmo_op_ == 7 ? "Move" : gizmo_op_ == 120 ? "Rotate" : "Scale";
+    ImGui::SameLine(ImGui::GetWindowWidth() - 470);
+    ImGui::TextDisabled("%.0f FPS   %d ents   sel: %s   %s",
+                        ImGui::GetIO().Framerate, (int)ctx.scene.names().size(),
+                        selected_.empty() ? "-" : selected_.c_str(), gop);
     ImGui::SameLine(ImGui::GetWindowWidth() - 210);
     ImGui::TextDisabled("sim: %s", play_ ? "running" : "paused");
     ImGui::SameLine();
@@ -354,9 +465,24 @@ void Editor::panel_hierarchy(CommandContext& ctx) {
     static char f[64] = {0};
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##hf", "Search", f, sizeof(f));
+    auto& reg = ctx.scene.registry;
     if (ImGui::BeginChild("tree")) {
-        for (auto [e, n] : ctx.scene.registry.view<Name>().each()) {
+        for (auto [e, n] : reg.view<Name>().each()) {
             if (f[0] && !ImStristr(n.value.c_str(), nullptr, f, nullptr)) continue;
+
+            // component badges: M mesh, L light, B body, A anim, T terrain
+            float x0 = ImGui::GetCursorPosX();
+            bool any = false;
+            auto tag = [&](const char* s, ImVec4 col) {
+                ImGui::TextColored(col, "%s", s); ImGui::SameLine(0, 3); any = true;
+            };
+            if (reg.all_of<MeshRenderer>(e))                     tag("M", ImVec4(0.72f, 0.72f, 0.74f, 1));
+            if (reg.any_of<DirectionalLight, PunctualLight>(e))  tag("L", ImVec4(0.95f, 0.80f, 0.32f, 1));
+            if (reg.all_of<RigidBody>(e))                        tag("B", ImVec4(0.40f, 0.62f, 1.00f, 1));
+            if (reg.any_of<AnimationPlayer, AnimatorController>(e)) tag("A", ImVec4(0.42f, 0.85f, 0.50f, 1));
+            if (reg.all_of<TerrainComp>(e))                      tag("T", ImVec4(0.72f, 0.56f, 0.36f, 1));
+            if (any) ImGui::SameLine(x0 + 62.0f); else ImGui::SetCursorPosX(x0 + 62.0f);
+
             if (ImGui::Selectable(n.value.c_str(), is_selected(n.value))) {
                 if (ImGui::GetIO().KeyCtrl && !selected_.empty()) {
                     auto it = std::find(multi_.begin(), multi_.end(), n.value);
@@ -395,17 +521,31 @@ void Editor::panel_details(CommandContext& ctx) {
     ImGui::TextUnformatted(selected_.c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Delete")) { ctx.scene.destroy(selected_); selected_.clear(); multi_.clear(); ImGui::End(); return; }
+
+    static char dfilter[64] = {0};
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##detf", "Filter properties", dfilter, sizeof(dfilter));
+    // a section shows when its own name or any of its row labels matches the filter
+    auto sec = [&](const char* title, std::initializer_list<const char*> rows) {
+        if (!dfilter[0]) return true;
+        if (ImStristr(title, nullptr, dfilter, nullptr)) return true;
+        for (const char* r : rows)
+            if (ImStristr(r, nullptr, dfilter, nullptr)) return true;
+        return false;
+    };
     ImGui::Separator();
 
     if (auto* t = reg.try_get<Transform>(e)) {
-        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Transform", {"Location", "Rotation", "Scale"}) &&
+            ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
             drag3("Location", t->position);
             drag3("Rotation", t->euler_deg, 0.5f);
             drag3("Scale", t->scale);
         }
     }
     if (auto* mr = reg.try_get<MeshRenderer>(e)) {
-        if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Mesh", {"Primitive", "Base Color", "Metallic", "Roughness", "Emissive"}) &&
+            ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
             const char* prims[] = {"cube", "sphere", "plane", "gltf", "skinned"};
             int cur = 0; for (int i = 0; i < 5; ++i) if (mr->primitive == prims[i]) cur = i;
             if (ImGui::Combo("Primitive", &cur, prims, 5)) { mr->primitive = prims[cur]; ctx.scene.resolve_gpu_meshes(); }
@@ -416,14 +556,16 @@ void Editor::panel_details(CommandContext& ctx) {
         }
     }
     if (auto* dl = reg.try_get<DirectionalLight>(e)) {
-        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Directional Light", {"Direction", "Color", "Intensity"}) &&
+            ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
             drag3("Direction", dl->direction, 0.02f);
             ImGui::ColorEdit3("Color", &dl->color.x);
             ImGui::DragFloat("Intensity", &dl->intensity, 0.05f, 0, 30);
         }
     }
     if (auto* pl = reg.try_get<PunctualLight>(e)) {
-        if (ImGui::CollapsingHeader("Point / Spot Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Point / Spot Light", {"Spot", "Color", "Intensity", "Range", "Direction", "Inner", "Outer"}) &&
+            ImGui::CollapsingHeader("Point / Spot Light", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Checkbox("Spot", &pl->spot);
             ImGui::ColorEdit3("Color", &pl->color.x);
             ImGui::DragFloat("Intensity", &pl->intensity, 0.2f, 0, 200);
@@ -436,7 +578,8 @@ void Editor::panel_details(CommandContext& ctx) {
         }
     }
     if (auto* rb = reg.try_get<RigidBody>(e)) {
-        if (ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Rigid Body", {"Type", "Mass", "Restitution"}) &&
+            ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen)) {
             const char* types[] = {"static", "dynamic", "kinematic"};
             int cur = rb->type == "static" ? 0 : rb->type == "kinematic" ? 2 : 1;
             if (ImGui::Combo("Type", &cur, types, 3)) { rb->type = types[cur]; rb->registered = false; ctx.physics.sync(ctx.scene); }
@@ -445,7 +588,8 @@ void Editor::panel_details(CommandContext& ctx) {
         }
     }
     if (auto* ap = reg.try_get<AnimationPlayer>(e)) {
-        if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (sec("Animation", {"clip", "Playing", "Speed"}) &&
+            ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Text("clip: %s", ap->clip.c_str());
             ImGui::Checkbox("Playing", &ap->playing);
             ImGui::DragFloat("Speed", &ap->speed, 0.02f, 0, 5);
@@ -475,8 +619,8 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
     if (over_scene) update_orbit_camera(ctx);
 
     ImDrawList* fg = ImGui::GetForegroundDrawList();
-    fg->AddText(ImVec2(16, win_h_ - 40.0f), IM_COL32(255, 255, 255, 110),
-                play_ ? "PLAYING" : "EDIT");
+    fg->AddText(ImVec2(16, win_h_ - 40.0f), IM_COL32(255, 255, 255, 130),
+                play_ ? "PLAYING  --  WASD / Space" : "EDIT");
 
     entt::entity e = ctx.scene.find(selected_);
     auto* t = e != entt::null ? ctx.scene.registry.try_get<Transform>(e) : nullptr;
@@ -489,14 +633,20 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
         glm::mat4 proj = cam.proj(win_h_ ? float(win_w_) / win_h_ : 1.0f);
         glm::mat4 before = t->matrix();
         glm::mat4 model = before;
+        // snap step: per-axis for translate, fixed 15deg / 0.1 for rotate / scale
+        static const float kTrSteps[] = {0.1f, 0.25f, 0.5f, 1.0f};
+        float step = gizmo_op_ == 7 ? kTrSteps[snap_tr_idx_] : gizmo_op_ == 120 ? 15.0f : 0.1f;
+        glm::vec3 snap_v(step);
+        const float* snap = gizmo_snap_ ? glm::value_ptr(snap_v) : nullptr;
         if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
                                  (ImGuizmo::OPERATION)gizmo_op_, (ImGuizmo::MODE)gizmo_mode_,
-                                 glm::value_ptr(model))) {
+                                 glm::value_ptr(model), nullptr, snap)) {
             glm::vec3 tr, rot, sc;
             ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(model), &tr.x, &rot.x, &sc.x);
             t->position = tr; t->euler_deg = rot; t->scale = sc;
 
             // apply the same world-space delta to every other selected entity
+            // (delta comes from the already-snapped primary, so snapping carries)
             if (!multi_.empty()) {
                 glm::mat4 delta = model * glm::inverse(before);
                 for (const std::string& name : multi_) {
@@ -511,6 +661,9 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
             }
         }
     }
+
+    // click-to-pick: after the gizmo, so IsUsing()/IsOver() reflect this frame
+    viewport_pick(ctx);
 }
 
 void Editor::panel_animations(CommandContext& ctx) {
@@ -518,6 +671,15 @@ void Editor::panel_animations(CommandContext& ctx) {
     ImGui::RadioButton("Move", &gizmo_op_, 7); ImGui::SameLine();
     ImGui::RadioButton("Rotate", &gizmo_op_, 120); ImGui::SameLine();
     ImGui::RadioButton("Scale", &gizmo_op_, 896);
+    ImGui::Checkbox("Snap", &gizmo_snap_);
+    if (gizmo_snap_ && gizmo_op_ == 7) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90);
+        ImGui::Combo("##snapstep", &snap_tr_idx_, "0.1\0" "0.25\0" "0.5\0" "1.0\0");
+    } else if (gizmo_snap_) {
+        ImGui::SameLine();
+        ImGui::TextDisabled(gizmo_op_ == 120 ? "15 deg" : "0.1");
+    }
     ImGui::Separator();
     ImGui::TextDisabled("Skinned entities");
     for (auto [e, mr, ap] : ctx.scene.registry.view<MeshRenderer, AnimationPlayer>().each()) {
@@ -586,6 +748,33 @@ void Editor::panel_output(CommandContext& ctx) {
     ImGui::End();
 }
 
+void Editor::panel_assets(CommandContext& ctx) {
+    ImGui::Begin("Assets");
+    if (!assets_scanned_) scan_assets();
+    if (ImGui::SmallButton("Refresh")) scan_assets();
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("SCENES", ImGuiTreeNodeFlags_DefaultOpen)) {
+        for (auto& p : asset_scenes_) {
+            std::string stem = fs::path(p).stem().string();
+            if (ImGui::Selectable(("  " + stem).c_str())) {
+                json r = dispatch(ctx, {{"method", "scene.load"}, {"params", {{"path", p}}}});
+                if (r.value("ok", false)) {
+                    ctx.physics.sync(ctx.scene);
+                    selected_.clear(); multi_.clear();
+                }
+            }
+        }
+    }
+    if (ImGui::CollapsingHeader("PREFABS", ImGuiTreeNodeFlags_DefaultOpen)) {
+        for (auto& p : asset_prefabs_) {
+            std::string stem = fs::path(p).stem().string();
+            if (ImGui::Selectable(("  " + stem).c_str()))
+                dispatch(ctx, {{"method", "prefab.instantiate"}, {"params", {{"path", p}, {"name", stem}}}});
+        }
+    }
+    ImGui::End();
+}
+
 // ---------------- frame ----------------
 void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -606,7 +795,7 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     ImGui::DockSpace(dock, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     ImGui::End();
 
-    // keyboard: undo / redo (only when no text field is focused)
+    // keyboard shortcuts (only when no text field is focused)
     {
         ImGuiIO& io = ImGui::GetIO();
         if (io.KeyCtrl && !io.WantTextInput) {
@@ -615,13 +804,31 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
             else if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
                 do_redo(ctx);
         }
+        if (!io.WantTextInput && !io.KeyCtrl && !io.KeyAlt) {
+            if (mode_ == 0 && ImGui::IsKeyPressed(ImGuiKey_F, false))
+                focus_selected(ctx);
+            // camera bookmarks: Shift+1..4 store, 1..4 recall
+            for (int i = 0; i < 4; ++i) {
+                if (!ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i), false)) continue;
+                CamPose& m = cam_marks_[i];
+                if (io.KeyShift) {
+                    m = {cam_yaw_, cam_pitch_, cam_dist_, {pivot_[0], pivot_[1], pivot_[2]}, true};
+                } else if (m.set) {
+                    cam_yaw_ = m.yaw; cam_pitch_ = m.pitch; cam_dist_ = m.dist;
+                    pivot_[0] = m.pivot[0]; pivot_[1] = m.pivot[1]; pivot_[2] = m.pivot[2];
+                }
+            }
+        }
     }
+
+    sync_play_input(ctx);
 
     main_menu(ctx);
     toolbar(ctx);
     status_bar(ctx);
 
     panel_palette(ctx);
+    panel_assets(ctx);
     panel_hierarchy(ctx);
     panel_details(ctx);
     panel_viewport(ctx, scene_tex);
@@ -641,7 +848,7 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
 
         // Only the docked tool panels get a card. (ImGuizmo spawns a full-window
         // "gizmo" window; the dock hosts are ##-prefixed -- neither is a panel.)
-        static const char* kPanels[] = {"Palette", "Hierarchy", "Details", "Blueprint",
+        static const char* kPanels[] = {"Palette", "Assets", "Hierarchy", "Details", "Blueprint",
                                         "Animations", "Timeline", "Output Log"};
         for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
             if (w->Hidden || !w->WasActive) continue;

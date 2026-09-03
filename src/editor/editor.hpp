@@ -51,8 +51,21 @@ private:
     float cam_yaw_ = -40.0f, cam_pitch_ = 25.0f, cam_dist_ = 16.0f;
     float pivot_[3] = {0, 1.5f, 0};
 
+    // number-key camera bookmarks: Shift+1..4 stores, 1..4 recalls
+    struct CamPose { float yaw = 0, pitch = 0, dist = 0, pivot[3] = {0, 0, 0}; bool set = false; };
+    CamPose cam_marks_[4];
+
     int gizmo_op_ = 7;
     int gizmo_mode_ = 1;
+    bool gizmo_snap_ = false;
+    int snap_tr_idx_ = 1;   // index into {0.1, 0.25, 0.5, 1.0}
+
+    bool prev_play_ = false;   // edge-detect the Play toggle to (un)bind gameplay input
+
+    // Assets panel: cached listings of scenes/*.json + prefabs/*.json
+    std::vector<std::string> asset_scenes_, asset_prefabs_;
+    bool assets_scanned_ = false;
+    void scan_assets();
 
     std::unique_ptr<BlueprintEditor> bp_;
     std::unique_ptr<GlassLayer> glass_;
@@ -73,7 +86,11 @@ private:
     void panel_animations(CommandContext&);
     void panel_timeline(CommandContext&);
     void panel_output(CommandContext&);
+    void panel_assets(CommandContext&);
     void update_orbit_camera(CommandContext&);
+    void viewport_pick(CommandContext&);        // click-to-select in Designer mode
+    void focus_selected(CommandContext&);       // F: frame the selection
+    void sync_play_input(CommandContext&);      // bind/unbind scene input on Play
     void run_console(CommandContext&, const std::string& line);
     void spawn(CommandContext&, const char* primitive);
 };
