@@ -1,5 +1,6 @@
 #include "aicontrol/commands.hpp"
 #include "anim/animation_system.hpp"
+#include "anim/animator.hpp"
 #include "fx/particles.hpp"
 #include "scene/transform_system.hpp"
 #include "core/log.hpp"
@@ -234,6 +235,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
+                update_animators(scene, dt);
                 update_animations(scene, dt);
                 update_particles(scene, dt);
                 ctx.behaviors.tick(scene, ctx.physics, ctx.game, dt);
@@ -283,6 +285,41 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (mr && mr->skinned)
                 for (auto& [k, v] : mr->skinned->clips) clips.push_back(k);
             return ok(id, {{"clips", clips}});
+        }
+        if (method == "animator.set") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            AnimatorController c = animator_from_json(p);
+            if (c.states.empty()) return fail(id, "animator needs at least one state");
+            scene.registry.emplace_or_replace<AnimatorController>(e, std::move(c));
+            scene.registry.get_or_emplace<AnimationPlayer>(e);
+            return ok(id, {{"states", p.value("states", json::array()).size()}});
+        }
+        if (method == "animator.param") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* c = scene.registry.try_get<AnimatorController>(e);
+            if (!c) return fail(id, "entity has no animator");
+            if (p.contains("params") && p["params"].is_object()) {
+                for (auto& [k, v] : p["params"].items())
+                    c->params[k] = v.is_boolean() ? (v.get<bool>() ? 1.f : 0.f) : v.get<float>();
+            } else {
+                std::string key = p.at("param").get<std::string>();
+                const json& v = p.at("value");
+                c->params[key] = v.is_boolean() ? (v.get<bool>() ? 1.f : 0.f) : v.get<float>();
+            }
+            return ok(id);
+        }
+        if (method == "animator.get") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            auto* c = scene.registry.try_get<AnimatorController>(e);
+            if (!c) return fail(id, "entity has no animator");
+            json params = json::object();
+            for (auto& [k, v] : c->params) params[k] = v;
+            return ok(id, {{"current", c->current}, {"entry", c->entry},
+                           {"params", params}, {"states", c->states.size()},
+                           {"transitions", c->transitions.size()}});
         }
         if (method == "audio.play") {
             std::string file = p.at("file").get<std::string>();

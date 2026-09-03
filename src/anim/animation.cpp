@@ -136,6 +136,28 @@ std::shared_ptr<SkinnedModel> builtin_skinned(const std::string& name) {
     }
     model->clips["wave"] = std::move(clip);
 
+    // procedural extras so a state machine has something to switch between:
+    // "idle" -- a slow, low-amplitude sway ; "bend" -- a static lean, held.
+    auto sway = [&](const char* nm, float dur, float amp, float freq) {
+        AnimationClip c;
+        c.name = nm;
+        c.duration = dur;
+        for (int j = 1; j < segs; ++j) {
+            AnimChannel ch; ch.joint = j; ch.path = 1;
+            for (int k = 0; k <= keys; ++k) {
+                float tt = dur * k / keys;
+                float ang = amp * std::sin(tt * glm::two_pi<float>() * freq / dur - j * 0.5f);
+                glm::quat q = glm::angleAxis(ang, glm::vec3(0, 0, 1));
+                ch.times.push_back(tt);
+                ch.values.push_back(glm::vec4(q.x, q.y, q.z, q.w));
+            }
+            c.channels.push_back(std::move(ch));
+        }
+        model->clips[nm] = std::move(c);
+    };
+    sway("idle", 3.0f, 0.06f, 1.0f);
+    sway("bend", 1.0f, 0.55f, 0.0f);   // freq 0 -> constant lean, effectively a pose
+
     (void)name;
     return model;
 }

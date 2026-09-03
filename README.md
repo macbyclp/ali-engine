@@ -27,7 +27,7 @@ rules, step the simulation, and **get the rendered frame back as an image** to r
 about — then iterate.
 
 Everything is data. The scene is JSON. Behaviours are JSON. The control surface is
-~49 line-delimited JSON commands on stdin/stdout. That makes the engine:
+~50 line-delimited JSON commands on stdin/stdout. That makes the engine:
 
 - **AI-native** — a model emits commands, reads back screenshots and structured state
 - **Deterministic** — same scene + same commands → same result; fixed-step simulation

@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "anim/animation.hpp"
+#include "anim/animator.hpp"
 #include "assets/gltf.hpp"
 #include "assets/texture.hpp"
 #include "core/log.hpp"
@@ -203,6 +204,10 @@ entt::entity Scene::load_entity(const json& je) {
             ap.playing = ja.value("playing", true);
             registry.emplace<AnimationPlayer>(e, ap);
         }
+        if (je.contains("animator")) {
+            registry.emplace<AnimatorController>(e, animator_from_json(je["animator"]));
+            registry.get_or_emplace<AnimationPlayer>(e);
+        }
         if (je.contains("camera")) {
             const auto& jc = je["camera"];
             CameraComp c;
@@ -290,6 +295,9 @@ json Scene::to_json() const {
         if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
             je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},
                                {"loop", ap->loop}, {"playing", ap->playing}};
+        }
+        if (auto* ac = registry.try_get<AnimatorController>(e)) {
+            if (!ac->states.empty()) je["animator"] = animator_to_json(*ac);
         }
         if (auto* cc = registry.try_get<CharacterController>(e)) {
             je["character"] = {{"radius", cc->radius}, {"height", cc->height},
