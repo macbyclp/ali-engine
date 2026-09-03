@@ -10,6 +10,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -157,7 +158,35 @@ PhysicsWorld::~PhysicsWorld() = default;
 
 uint32_t PhysicsWorld::add_body(const BodyDesc& d) {
     JPH::ShapeRefC shape;
-    if (d.shape == "sphere")
+    if (d.shape == "heightfield" && d.hf_samples && d.hf_count >= 2) {
+        int n = d.hf_count;
+        const float* src = d.hf_samples;
+        // Jolt wants the sample count to be a multiple of the block size (2);
+        // pad an odd grid by one replicated row/column.
+        std::vector<float> padded;
+        int m = n;
+        if (n % 2 != 0) {
+            m = n + 1;
+            padded.resize((size_t)m * m);
+            for (int z = 0; z < m; ++z)
+                for (int x = 0; x < m; ++x)
+                    padded[(size_t)z * m + x] =
+                        src[(size_t)std::min(z, n - 1) * n + std::min(x, n - 1)];
+            src = padded.data();
+        }
+        float spacing = d.hf_size / float(n - 1);
+        JPH::Vec3 offset(-0.5f * d.hf_size, 0.0f, -0.5f * d.hf_size);
+        JPH::Vec3 scale(spacing, glm::max(d.hf_height, 1e-4f), spacing);
+        JPH::HeightFieldShapeSettings hs(src, offset, scale, (JPH::uint32)m);
+        auto res = hs.Create();
+        if (res.IsValid()) {
+            shape = res.Get();
+        } else {
+            eng::log::error("heightfield shape: %s", res.GetError().c_str());
+            shape = new JPH::BoxShape(JPH::Vec3(0.5f * d.hf_size, 0.1f, 0.5f * d.hf_size));
+        }
+    }
+    else if (d.shape == "sphere")
         shape = new JPH::SphereShape(d.radius);
     else
         shape = new JPH::BoxShape(to_j(glm::max(d.half_extents, glm::vec3(0.02f))));

@@ -13,7 +13,7 @@ enum class BodyType { Static, Dynamic, Kinematic };
 
 struct BodyDesc {
     BodyType type = BodyType::Dynamic;
-    std::string shape = "box";        // box | sphere
+    std::string shape = "box";        // box | sphere | heightfield
     glm::vec3 half_extents{0.5f};
     float radius = 0.5f;
     float mass = 1.0f;
@@ -22,6 +22,15 @@ struct BodyDesc {
     glm::vec3 position{0};
     glm::quat rotation{1, 0, 0, 0};
     bool sensor = false;   // overlaps are reported, nothing is pushed
+
+    // heightfield (shape == "heightfield"): a real collider matching a TerrainData
+    // heightmap. `hf_samples` is `hf_count * hf_count` normalized 0..1 values,
+    // row-major over Z then X, spanning `hf_size` (square, centred on the body),
+    // vertical range 0..`hf_height`. Pointer is only read during add_body().
+    const float* hf_samples = nullptr;
+    int hf_count = 0;
+    float hf_size = 0.0f;
+    float hf_height = 1.0f;
 };
 
 struct RayHit {
