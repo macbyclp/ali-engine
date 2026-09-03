@@ -1,4 +1,4 @@
-ali-engine v0.1.0  (Windows x64)
+ali-engine v0.1.1  (Windows x64)
 ================================
 
 An AI-native 3D game engine. An AI agent builds and runs a whole game over a
@@ -45,6 +45,10 @@ Editor
 ------
   --editor  opens the ImGui editor:
     Palette / Hierarchy / Details / Viewport / Animations / Timeline / Output Log
+
+  The editor is an Apple-style liquid-glass skin: the live 3D scene fills the
+  window, panels are frosted-glass cards over it. Typeface is Helvetica (falls
+  back to the bundled Liberation Sans in assets/fonts/).
 
   Viewport:  RMB drag = orbit,  MMB drag = pan,  wheel = zoom
   Toolbar:   Play toggles physics + behaviours + animation
