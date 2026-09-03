@@ -31,6 +31,7 @@ static BodyDesc describe(const glm::mat4& world, const RigidBody& rb, const Mesh
     d.mass = rb.mass;
     d.restitution = rb.restitution;
     d.friction = rb.friction;
+    d.sensor = rb.sensor;
     decompose(world, d.position, d.rotation);
 
     glm::vec3 scale{glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])),
@@ -178,6 +179,17 @@ void PhysicsSystem::step_characters(Scene& scene, float dt) {
 std::vector<std::pair<entt::entity, entt::entity>> PhysicsSystem::drain_contacts() {
     std::vector<std::pair<entt::entity, entt::entity>> out;
     for (auto [ha, hb] : world_.drain_contacts()) {
+        auto ia = handle_to_entity_.find(ha);
+        auto ib = handle_to_entity_.find(hb);
+        if (ia != handle_to_entity_.end() && ib != handle_to_entity_.end())
+            out.emplace_back(ia->second, ib->second);
+    }
+    return out;
+}
+
+std::vector<std::pair<entt::entity, entt::entity>> PhysicsSystem::drain_separations() {
+    std::vector<std::pair<entt::entity, entt::entity>> out;
+    for (auto [ha, hb] : world_.drain_separations()) {
         auto ia = handle_to_entity_.find(ha);
         auto ib = handle_to_entity_.find(hb);
         if (ia != handle_to_entity_.end() && ib != handle_to_entity_.end())

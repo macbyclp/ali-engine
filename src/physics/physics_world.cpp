@@ -80,15 +80,26 @@ public:
         pairs_.emplace_back(b1.GetID().GetIndexAndSequenceNumber(),
                             b2.GetID().GetIndexAndSequenceNumber());
     }
+    void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
+        std::lock_guard<std::mutex> lk(mtx_);
+        gone_.emplace_back(pair.GetBody1ID().GetIndexAndSequenceNumber(),
+                           pair.GetBody2ID().GetIndexAndSequenceNumber());
+    }
     std::vector<std::pair<uint32_t, uint32_t>> drain() {
         std::lock_guard<std::mutex> lk(mtx_);
         auto out = std::move(pairs_);
         pairs_.clear();
         return out;
     }
+    std::vector<std::pair<uint32_t, uint32_t>> drain_gone() {
+        std::lock_guard<std::mutex> lk(mtx_);
+        auto out = std::move(gone_);
+        gone_.clear();
+        return out;
+    }
 private:
     std::mutex mtx_;
-    std::vector<std::pair<uint32_t, uint32_t>> pairs_;
+    std::vector<std::pair<uint32_t, uint32_t>> pairs_, gone_;
 };
 
 static void trace_impl(const char* fmt, ...) {
@@ -157,7 +168,13 @@ uint32_t PhysicsWorld::add_body(const BodyDesc& d) {
                                                              : JPH::EMotionType::Static;
     JPH::ObjectLayer layer = moving ? Layers::MOVING : Layers::NON_MOVING;
 
+    if (d.sensor) {   // sensors are kinematic so they also detect resting bodies
+        motion = JPH::EMotionType::Kinematic;
+        layer = Layers::MOVING;
+        moving = true;
+    }
     JPH::BodyCreationSettings s(shape, to_j(d.position), to_j(d.rotation), motion, layer);
+    s.mIsSensor = d.sensor;
     s.mRestitution = d.restitution;
     s.mFriction = d.friction;
     if (d.type == BodyType::Dynamic) {
@@ -203,6 +220,10 @@ void PhysicsWorld::step(float dt) {
 
 std::vector<std::pair<uint32_t, uint32_t>> PhysicsWorld::drain_contacts() {
     return p_->contacts.drain();
+}
+
+std::vector<std::pair<uint32_t, uint32_t>> PhysicsWorld::drain_separations() {
+    return p_->contacts.drain_gone();
 }
 
 uint32_t PhysicsWorld::create_character(const glm::vec3& pos, float radius, float height) {

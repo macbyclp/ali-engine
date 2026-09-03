@@ -155,6 +155,12 @@ ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (
 `ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
 
+### Tetik hacimleri (trigger volume)
+`body: {"type":"kinematic","sensor":true}` — çarpışmayı raporlar ama hiçbir şeyi
+itmez. Davranış tetikleri: `{"on":"enter","with":"..."}` (üst üste binme başlangıcı)
+ve `{"on":"exit","with":"..."}`. `with` boşsa her şeye tepki verir. Kapı, checkpoint,
+hasar bölgesi, toplanabilir eşya bunlarla kurulur.
+
 ### Girdi (input)
 Adlandırılmış aksiyonlar: `input.map` ile bir aksiyona tuş/fare/gamepad bağlarsın,
 oyun mantığı sadece aksiyon adını sorar. Tuş adları: `A`–`Z`, `0`–`9`, `Space`,

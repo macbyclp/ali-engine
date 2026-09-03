@@ -23,6 +23,8 @@ public:
 
     // Contact pairs since last drain, resolved to entities (invalid if body gone).
     std::vector<std::pair<entt::entity, entt::entity>> drain_contacts();
+    // pairs that stopped touching this step (drives the `exit` behaviour trigger)
+    std::vector<std::pair<entt::entity, entt::entity>> drain_separations();
 
     PhysicsWorld& world() { return world_; }
     RayHit raycast(const glm::vec3& o, const glm::vec3& d, float max_d) const {

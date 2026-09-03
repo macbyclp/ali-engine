@@ -21,6 +21,7 @@ struct BodyDesc {
     float friction = 0.5f;
     glm::vec3 position{0};
     glm::quat rotation{1, 0, 0, 0};
+    bool sensor = false;   // overlaps are reported, nothing is pushed
 };
 
 struct RayHit {
@@ -55,6 +56,7 @@ public:
 
     // Contact pairs (handle,handle) detected during the most recent step(s).
     std::vector<std::pair<uint32_t, uint32_t>> drain_contacts();
+    std::vector<std::pair<uint32_t, uint32_t>> drain_separations();
 
     // --- kinematic character controllers (Jolt CharacterVirtual) ---
     uint32_t create_character(const glm::vec3& pos, float radius, float height);
