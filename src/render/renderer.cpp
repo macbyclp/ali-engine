@@ -164,6 +164,26 @@ uniform int uHas;   // bitmask: 1 base, 2 normal, 4 mr, 8 emissive, 16 ao
 uniform sampler2D uSSAO;
 uniform int uSSAOEnabled;
 uniform vec2 uViewport;
+uniform sampler2DShadow uSpotAtlas;
+uniform mat4 uSpotVP[4];
+uniform int uSpotSlot[16];       // atlas tile index per light, -1 = no shadow
+
+float spotShadow(int slot, vec3 worldPos) {
+    if (slot < 0) return 1.0;
+    vec4 lp = uSpotVP[slot] * vec4(worldPos, 1.0);
+    if (lp.w <= 0.0) return 1.0;
+    vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
+    if (p.z > 1.0 || p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
+    vec2 tile = vec2(float(slot - 2 * (slot / 2)), float(slot / 2)) * 0.5;
+    vec2 uv = tile + p.xy * 0.5;
+    float bias = 0.0009;
+    float sh = 0.0;
+    vec2 tx = vec2(0.5) / vec2(textureSize(uSpotAtlas, 0));
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            sh += texture(uSpotAtlas, vec3(uv + vec2(x, y) * tx, p.z - bias));
+    return sh / 9.0;
+}
 
 const float PI = 3.14159265359;
 float D_GGX(float NoH, float a){float a2=a*a;float d=NoH*NoH*(a2-1.0)+1.0;return a2/max(PI*d*d,1e-7);}
@@ -242,6 +262,8 @@ void main() {
             float cd = dot(-Lv, normalize(uLightDir[i].xyz));
             att *= smoothstep(uLightCone[i].y, uLightCone[i].x, cd);
         }
+        if (att <= 0.0) continue;
+        if (uLightColor[i].w > 0.5) att *= spotShadow(uSpotSlot[i], vWorld);
         if (att <= 0.0) continue;
         direct += brdf(N, V, Lv, albedo, rough, metallic, F0) * uLightColor[i].rgb * att;
     }
@@ -496,6 +518,24 @@ Renderer::Renderer(int w, int h)
     glNamedFramebufferDrawBuffer(csm_fbo_, GL_NONE);
     glNamedFramebufferReadBuffer(csm_fbo_, GL_NONE);
 
+    // spot-light shadow atlas: one 2D depth texture, tiled 2x2
+    glCreateTextures(GL_TEXTURE_2D, 1, &spot_atlas_);
+    glTextureStorage2D(spot_atlas_, 1, GL_DEPTH_COMPONENT32F, spot_atlas_size_, spot_atlas_size_);
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    {
+        float b[4] = {1, 1, 1, 1};
+        glTextureParameterfv(spot_atlas_, GL_TEXTURE_BORDER_COLOR, b);
+    }
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTextureParameteri(spot_atlas_, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glCreateFramebuffers(1, &spot_fbo_);
+    glNamedFramebufferDrawBuffer(spot_fbo_, GL_NONE);
+    glNamedFramebufferReadBuffer(spot_fbo_, GL_NONE);
+    glNamedFramebufferTexture(spot_fbo_, GL_DEPTH_ATTACHMENT, spot_atlas_, 0);
+
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
     bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
@@ -590,6 +630,8 @@ Renderer::Renderer(int w, int h)
 Renderer::~Renderer() {
     if (csm_tex_) glDeleteTextures(1, &csm_tex_);
     if (csm_fbo_) glDeleteFramebuffers(1, &csm_fbo_);
+    if (spot_atlas_) glDeleteTextures(1, &spot_atlas_);
+    if (spot_fbo_) glDeleteFramebuffers(1, &spot_fbo_);
     for (unsigned t : {depth_tex_, ao_tex_, ao_blur_tex_, ao_noise_}) if (t) glDeleteTextures(1, &t);
     for (unsigned f : {depth_fbo_, ao_fbo_, ao_blur_fbo_}) if (f) glDeleteFramebuffers(1, &f);
     if (instance_vbo_) glDeleteBuffers(1, &instance_vbo_);
@@ -780,14 +822,29 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     // punctual lights (point + spot)
     struct GpuLight { glm::vec4 pos; glm::vec4 color; glm::vec4 dir; glm::vec2 cone; };
     std::vector<GpuLight> lights;
+    std::vector<int> light_slot;                 // spot-shadow atlas slot per light, -1 = none
+    glm::mat4 spot_vp[kSpotShadows];
+    int spot_used = 0;
     for (auto [e, wt, pl] : scene.registry.view<WorldTransform, PunctualLight>().each()) {
         if (lights.size() >= 16) break;
         GpuLight g;
         g.pos = glm::vec4(wt.position, pl.range);
         g.color = glm::vec4(pl.color * pl.intensity, pl.spot ? 1.0f : 0.0f);
-        g.dir = glm::vec4(glm::normalize(pl.direction), 0.0f);
+        glm::vec3 d = glm::normalize(pl.direction);
+        g.dir = glm::vec4(d, 0.0f);
         g.cone = {std::cos(glm::radians(pl.inner_deg)), std::cos(glm::radians(pl.outer_deg))};
         lights.push_back(g);
+
+        int slot = -1;
+        if (pl.spot && pl.cast_shadows && spot_used < kSpotShadows) {
+            slot = spot_used++;
+            glm::vec3 up = std::abs(d.y) > 0.99f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+            float fov = glm::radians(std::min(179.0f, pl.outer_deg * 2.0f + 6.0f));
+            glm::mat4 lproj = glm::perspective(fov, 1.0f, 0.05f, std::max(1.0f, pl.range));
+            glm::mat4 lview = glm::lookAt(wt.position, wt.position + d, up);
+            spot_vp[slot] = lproj * lview;
+        }
+        light_slot.push_back(slot);
     }
 
     struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
@@ -953,6 +1010,39 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glDisable(GL_POLYGON_OFFSET_FILL);
     glCullFace(GL_BACK);
 
+    // pass 1a: spot-light shadow atlas (2x2 tiles)
+    if (spot_used > 0) {
+        glBindFramebuffer(GL_FRAMEBUFFER, spot_fbo_);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(2.0f, 3.0f);
+        glEnable(GL_SCISSOR_TEST);
+        shadow_.use();
+        shadow_.set("uSkinned", 0);
+        glBindVertexArray(draw_vao_);
+        int half = spot_atlas_size_ / 2;
+        for (int s = 0; s < spot_used; ++s) {
+            int tx = (s % 2) * half, ty = (s / 2) * half;
+            glViewport(tx, ty, half, half);
+            glScissor(tx, ty, half, half);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            shadow_.set("uLightVP", spot_vp[s]);
+            for (auto& [key, insts] : all_groups) {
+                if (insts.empty()) continue;
+                GLintptr at = upload(insts);
+                glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
+                glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
+                glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+                glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
+                                        nullptr, (GLsizei)insts.size());
+            }
+            draw_skinned(shadow_);
+        }
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+
     // pass 1b: SSAO -- full-res depth prepass, half-res AO, blur
     bool ssao_on = scene.env.value("ssao", true);
     float ssao_radius = scene.env.value("ssao_radius", 0.6f);
@@ -1048,6 +1138,16 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glUniform4fv(glGetUniformLocation(prog, "uLightColor"), (GLsizei)col.size(), (const float*)col.data());
         glUniform4fv(glGetUniformLocation(prog, "uLightDir"), (GLsizei)dir.size(), (const float*)dir.data());
         glUniform2fv(glGetUniformLocation(prog, "uLightCone"), (GLsizei)cone.size(), (const float*)cone.data());
+    }
+    {
+        int slots[16];
+        for (int i = 0; i < 16; ++i) slots[i] = (i < (int)light_slot.size()) ? light_slot[i] : -1;
+        glUniform1iv(glGetUniformLocation(pbr_.id(), "uSpotSlot"), 16, slots);
+        if (spot_used > 0)
+            glUniformMatrix4fv(glGetUniformLocation(pbr_.id(), "uSpotVP"), spot_used, GL_FALSE,
+                               (const float*)spot_vp);
+        glBindTextureUnit(7, spot_atlas_);
+        pbr_.set("uSpotAtlas", 7);
     }
     pbr_.set("uBaseColorMap", 1);
     pbr_.set("uNormalMap", 2);

@@ -145,6 +145,12 @@ ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (
 `ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
 
+### Işık (`light` bloğu)
+`entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:
+`directional` (yön güneşi, 3-cascade CSM gölgeli), `point`, `spot`. Spot alanları:
+`direction`, `inner_deg`, `outer_deg`, `range`, `cast_shadows` (varsayılan açık —
+ilk 4 spot ışık 2x2 gölge atlasına girer). Point ışıklarda gölge yok (henüz).
+
 ### UI (`kind`)
 `panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),
 `bar` (arka + `value` 0..1 kadar `fill_color` dolgu + metin). `anchor`: `top-left`,

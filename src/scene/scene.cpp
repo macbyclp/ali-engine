@@ -134,6 +134,7 @@ entt::entity Scene::load_entity(const json& je) {
                 pl.direction = v3(jl.value("direction", json()), pl.direction);
                 pl.inner_deg = jl.value("inner_deg", pl.inner_deg);
                 pl.outer_deg = jl.value("outer_deg", pl.outer_deg);
+                pl.cast_shadows = jl.value("cast_shadows", pl.cast_shadows);
                 registry.emplace<PunctualLight>(e, pl);
             } else {
                 DirectionalLight dl;
@@ -284,6 +285,7 @@ json Scene::to_json() const {
                 je["light"]["direction"] = v3(pl->direction);
                 je["light"]["inner_deg"] = pl->inner_deg;
                 je["light"]["outer_deg"] = pl->outer_deg;
+                if (!pl->cast_shadows) je["light"]["cast_shadows"] = false;
             }
         }
         if (auto* rb = registry.try_get<RigidBody>(e)) {
