@@ -62,6 +62,8 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?}` | `{handle}` |
 | `audio.stop` | `{handle}` veya `{bus}` (bus'taki tüm sesler) | — |
 | `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
+| `render.set` | `{ssao?, ssao_radius?, ssao_intensity?, ...}` — sahne `environment` bloğuna yazar | `{environment}` |
+| `render.get` | — | `{environment}` |
 | `ui.add` / `ui.set` | `{name, kind?, anchor?, pos?, size?, color?, fill_color?, text?, text_size?, text_color?, value?, visible?, order?}` | `{name}` |
 | `ui.remove` | `{name}` | — |
 | `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
@@ -136,6 +138,12 @@ Her adım bir `shape` + parametreleri + opsiyonel `translate`/`rotate`/`scale`:
 Örnek — delikli blok: `[{"shape":"box","size":[2,2,2]},
 {"op":"subtract","shape":"cylinder","radius":0.6,"height":3}]`. Tarif sahne
 JSON'una `mesh.build` olarak serialize edilir; yeniden yüklenince yeniden üretilir.
+
+### Ortam / post (`environment` bloğu)
+Sahne JSON'unun üst düzey `environment` objesi frame ayarlarını tutar; `render.set`
+ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (~0.6),
+`ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
+bölgelerinde ambient ışığı koyulaştırır.
 
 ### UI (`kind`)
 `panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),

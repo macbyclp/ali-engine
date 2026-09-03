@@ -161,6 +161,9 @@ uniform sampler2D uMRMap;
 uniform sampler2D uEmissiveMap;
 uniform sampler2D uAOMap;
 uniform int uHas;   // bitmask: 1 base, 2 normal, 4 mr, 8 emissive, 16 ao
+uniform sampler2D uSSAO;
+uniform int uSSAOEnabled;
+uniform vec2 uViewport;
 
 const float PI = 3.14159265359;
 float D_GGX(float NoH, float a){float a2=a*a;float d=NoH*NoH*(a2-1.0)+1.0;return a2/max(PI*d*d,1e-7);}
@@ -251,12 +254,69 @@ void main() {
     vec3 Fr = fresnelRough(NoV, F0, rough);
     vec3 kdA = (1.0-Fr)*(1.0-metallic);
     float ao = ((uHas & 16) != 0) ? texture(uAOMap, vUV).r : 1.0;
+    if (uSSAOEnabled == 1) ao *= texture(uSSAO, gl_FragCoord.xy / uViewport).r;
     vec3 ambient = (kdA*albedo*irr + pref*Fr) * 0.55 * ao;
 
     vec3 emissive = vEmissive;
     if ((uHas & 8) != 0) emissive += texture(uEmissiveMap, vUV).rgb;
 
     FragColor = vec4(ambient + direct + emissive, 1.0);
+}
+)";
+
+static const char* kSsaoFrag = R"(
+in vec2 vUV;
+uniform sampler2D uDepth;
+uniform sampler2D uNoise;
+uniform mat4 uProj;
+uniform mat4 uInvProj;
+uniform vec2 uNoiseScale;   // screen / 4
+uniform vec3 uKernel[32];
+uniform int uKernelCount;
+uniform float uRadius;
+uniform float uIntensity;
+out float FragColor;
+
+vec3 viewPos(vec2 uv) {
+    float d = texture(uDepth, uv).r * 2.0 - 1.0;
+    vec4 c = uInvProj * vec4(uv * 2.0 - 1.0, d, 1.0);
+    return c.xyz / c.w;
+}
+void main() {
+    float d0 = texture(uDepth, vUV).r;
+    if (d0 >= 1.0) { FragColor = 1.0; return; }       // sky
+    vec3 P = viewPos(vUV);
+    vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+    vec3 rvec = normalize(texture(uNoise, vUV * uNoiseScale).xyz * 2.0 - 1.0);
+    vec3 T = normalize(rvec - N * dot(rvec, N));
+    mat3 TBN = mat3(T, cross(N, T), N);
+
+    float occ = 0.0;
+    for (int i = 0; i < uKernelCount; ++i) {
+        vec3 sp = P + (TBN * uKernel[i]) * uRadius;
+        vec4 off = uProj * vec4(sp, 1.0);
+        off.xyz /= off.w;
+        vec2 suv = off.xy * 0.5 + 0.5;
+        if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
+        float sd = viewPos(suv).z;
+        float rc = smoothstep(0.0, 1.0, uRadius / abs(P.z - sd));
+        occ += (sd >= sp.z + 0.02 ? 1.0 : 0.0) * rc;
+    }
+    occ = 1.0 - (occ / float(uKernelCount)) * uIntensity;
+    FragColor = clamp(occ, 0.0, 1.0);
+}
+)";
+static const char* kAoBlurFrag = R"(
+in vec2 vUV;
+uniform sampler2D uAO;
+out float FragColor;
+void main() {
+    vec2 texel = 1.0 / vec2(textureSize(uAO, 0));
+    float sum = 0.0;
+    for (int x = -2; x < 2; ++x)
+        for (int y = -2; y < 2; ++y)
+            sum += texture(uAO, vUV + vec2(x, y) * texel).r;
+    FragColor = sum / 16.0;
 }
 )";
 
@@ -413,6 +473,8 @@ Renderer::Renderer(int w, int h)
            (std::string(kSkyGLSL) + kPbrFrag).c_str()),
       sky_(kFsVert, (std::string(kSkyGLSL) + kSkyFrag).c_str()),
       shadow_(kShadowVert, kShadowFrag),
+      ssao_(kFsVert, kSsaoFrag),
+      ssao_blur_(kFsVert, kAoBlurFrag),
       tonemap_(kFsVert, kTonemapFrag),
       bright_(kFsVert, kBrightFrag),
       blur_(kFsVert, kBlurFrag),
@@ -437,6 +499,32 @@ Renderer::Renderer(int w, int h)
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
     bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
+
+    // SSAO hemisphere kernel (cosine-ish weighted toward the origin) + 4x4 noise
+    {
+        auto rnd = []() { return float(std::rand()) / float(RAND_MAX); };
+        for (int i = 0; i < 24; ++i) {
+            glm::vec3 s(rnd() * 2 - 1, rnd() * 2 - 1, rnd());
+            s = glm::normalize(s) * rnd();
+            float t = float(i) / 24.0f;
+            ao_kernel_[i] = s * glm::mix(0.1f, 1.0f, t * t);
+        }
+        glm::vec3 noise[16];
+        for (auto& n : noise) n = {rnd() * 2 - 1, rnd() * 2 - 1, 0.0f};
+        glCreateTextures(GL_TEXTURE_2D, 1, &ao_noise_);
+        glTextureStorage2D(ao_noise_, 1, GL_RGBA16F, 4, 4);
+        glTextureSubImage2D(ao_noise_, 0, 0, 0, 4, 4, GL_RGB, GL_FLOAT, noise);
+        glTextureParameteri(ao_noise_, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTextureParameteri(ao_noise_, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTextureParameteri(ao_noise_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(ao_noise_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glCreateFramebuffers(1, &depth_fbo_);
+        glNamedFramebufferDrawBuffer(depth_fbo_, GL_NONE);
+        glNamedFramebufferReadBuffer(depth_fbo_, GL_NONE);
+        glCreateFramebuffers(1, &ao_fbo_);
+        glCreateFramebuffers(1, &ao_blur_fbo_);
+    }
+
     glCreateVertexArrays(1, &empty_vao_);
     glCreateVertexArrays(1, &particle_vao_);
     glCreateBuffers(1, &particle_vbo_);
@@ -502,6 +590,8 @@ Renderer::Renderer(int w, int h)
 Renderer::~Renderer() {
     if (csm_tex_) glDeleteTextures(1, &csm_tex_);
     if (csm_fbo_) glDeleteFramebuffers(1, &csm_fbo_);
+    for (unsigned t : {depth_tex_, ao_tex_, ao_blur_tex_, ao_noise_}) if (t) glDeleteTextures(1, &t);
+    for (unsigned f : {depth_fbo_, ao_fbo_, ao_blur_fbo_}) if (f) glDeleteFramebuffers(1, &f);
     if (instance_vbo_) glDeleteBuffers(1, &instance_vbo_);
     if (particle_vbo_) glDeleteBuffers(1, &particle_vbo_);
     if (ui_vbo_) glDeleteBuffers(1, &ui_vbo_);
@@ -596,6 +686,35 @@ void Renderer::ui_pass(Scene& scene, int w, int h) {
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
+}
+
+void Renderer::ensure_ssao(int w, int h) {
+    if (w != depth_w_ || h != depth_h_) {
+        if (depth_tex_) glDeleteTextures(1, &depth_tex_);
+        glCreateTextures(GL_TEXTURE_2D, 1, &depth_tex_);
+        glTextureStorage2D(depth_tex_, 1, GL_DEPTH_COMPONENT32F, w, h);
+        glTextureParameteri(depth_tex_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(depth_tex_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(depth_tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(depth_tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glNamedFramebufferTexture(depth_fbo_, GL_DEPTH_ATTACHMENT, depth_tex_, 0);
+        depth_w_ = w; depth_h_ = h;
+    }
+    int aw = std::max(1, w / 2), ah = std::max(1, h / 2);
+    if (aw != ao_w_ || ah != ao_h_) {
+        for (unsigned* tp : {&ao_tex_, &ao_blur_tex_}) {
+            if (*tp) glDeleteTextures(1, tp);
+            glCreateTextures(GL_TEXTURE_2D, 1, tp);
+            glTextureStorage2D(*tp, 1, GL_R8, aw, ah);
+            glTextureParameteri(*tp, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTextureParameteri(*tp, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(*tp, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTextureParameteri(*tp, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        glNamedFramebufferTexture(ao_fbo_, GL_COLOR_ATTACHMENT0, ao_tex_, 0);
+        glNamedFramebufferTexture(ao_blur_fbo_, GL_COLOR_ATTACHMENT0, ao_blur_tex_, 0);
+        ao_w_ = aw; ao_h_ = ah;
+    }
 }
 
 void Renderer::ensure_hdr(int w, int h) {
@@ -834,6 +953,65 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glDisable(GL_POLYGON_OFFSET_FILL);
     glCullFace(GL_BACK);
 
+    // pass 1b: SSAO -- full-res depth prepass, half-res AO, blur
+    bool ssao_on = scene.env.value("ssao", true);
+    float ssao_radius = scene.env.value("ssao_radius", 0.6f);
+    float ssao_intensity = scene.env.value("ssao_intensity", 1.1f);
+    ensure_ssao(w, h);
+    if (!ssao_on) {
+        // keep uSSAO pointing at a valid, all-white texture so PBR sampling of
+        // texture unit 6 is always well-defined
+        float white = 1.0f;
+        glClearTexImage(ao_blur_tex_, 0, GL_RED, GL_FLOAT, &white);
+    }
+    if (ssao_on) {
+        glBindFramebuffer(GL_FRAMEBUFFER, depth_fbo_);
+        glViewport(0, 0, w, h);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        shadow_.use();
+        shadow_.set("uSkinned", 0);
+        shadow_.set("uLightVP", view_proj);
+        glBindVertexArray(draw_vao_);
+        for (auto& [key, insts] : all_groups) {
+            if (insts.empty()) continue;
+            GLintptr at = upload(insts);
+            glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
+            glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
+            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+            glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
+                                    nullptr, (GLsizei)insts.size());
+        }
+        draw_skinned(shadow_);
+
+        glDisable(GL_DEPTH_TEST);
+        glBindVertexArray(empty_vao_);
+        glBindFramebuffer(GL_FRAMEBUFFER, ao_fbo_);
+        glViewport(0, 0, ao_w_, ao_h_);
+        ssao_.use();
+        glBindTextureUnit(0, depth_tex_);
+        glBindTextureUnit(1, ao_noise_);
+        ssao_.set("uDepth", 0);
+        ssao_.set("uNoise", 1);
+        ssao_.set("uProj", proj);
+        ssao_.set("uInvProj", glm::inverse(proj));
+        ssao_.set("uNoiseScale", glm::vec2(ao_w_ / 4.0f, ao_h_ / 4.0f));
+        ssao_.set("uKernelCount", 24);
+        ssao_.set("uRadius", ssao_radius);
+        ssao_.set("uIntensity", ssao_intensity);
+        glUniform3fv(glGetUniformLocation(ssao_.id(), "uKernel"), 24, (const float*)ao_kernel_);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, ao_blur_fbo_);
+        glViewport(0, 0, ao_w_, ao_h_);
+        ssao_blur_.use();
+        glBindTextureUnit(0, ao_tex_);
+        ssao_blur_.set("uAO", 0);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glEnable(GL_DEPTH_TEST);
+    }
+
     // pass 2: HDR scene
     hdr_->bind();
     glClearColor(0, 0, 0, 1);
@@ -876,6 +1054,10 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     pbr_.set("uMRMap", 3);
     pbr_.set("uEmissiveMap", 4);
     pbr_.set("uAOMap", 5);
+    pbr_.set("uSSAOEnabled", 1);   // uSSAO is always a valid texture (white when off)
+    pbr_.set("uViewport", glm::vec2((float)w, (float)h));
+    glBindTextureUnit(6, ao_blur_tex_);
+    pbr_.set("uSSAO", 6);
     glBindVertexArray(draw_vao_);
     for (auto& [key, insts] : visible_groups) {
         if (insts.empty()) continue;

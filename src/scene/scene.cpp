@@ -83,6 +83,7 @@ CameraComp& Scene::camera() {
 void Scene::clear() {
     registry.clear();
     index_.clear();
+    env = json::object();
 }
 
 entt::entity Scene::load_entity(const json& je) {
@@ -224,12 +225,14 @@ entt::entity Scene::load_entity(const json& je) {
 
 void Scene::load_json(const json& j) {
     clear();
+    if (j.contains("environment") && j["environment"].is_object()) env = j["environment"];
     for (const auto& je : j.value("entities", json::array())) load_entity(je);
     resolve_gpu_meshes();
 }
 
 json Scene::to_json() const {
     json out;
+    if (env.is_object() && !env.empty()) out["environment"] = env;
     out["entities"] = json::array();
     for (auto [e, n] : registry.view<Name>().each()) {
         json je;

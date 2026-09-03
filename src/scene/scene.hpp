@@ -19,6 +19,11 @@ public:
 
     entt::registry registry;
 
+    // Frame-wide environment / post settings (ssao, bloom, exposure, vignette...).
+    // Part of the scene JSON as the top-level "environment" object; the renderer
+    // reads it each frame with sensible fallbacks.
+    nlohmann::json env = nlohmann::json::object();
+
     entt::entity create(const std::string& name);   // auto-suffixes on collision
     bool destroy(const std::string& name);
     entt::entity find(const std::string& name) const;

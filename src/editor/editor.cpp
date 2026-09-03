@@ -223,6 +223,18 @@ void Editor::main_menu(CommandContext& ctx) {
         if (ImGui::BeginMenu("Asset")) { ImGui::MenuItem("(scene JSON is the asset)", nullptr, false, false); ImGui::EndMenu(); }
         if (ImGui::BeginMenu("View")) {
             ImGui::MenuItem("Grid", nullptr, true, false);
+            ImGui::Separator();
+            bool ssao = ctx.scene.env.value("ssao", true);
+            if (ImGui::MenuItem("Ambient Occlusion (SSAO)", nullptr, ssao))
+                ctx.scene.env["ssao"] = !ssao;
+            if (ssao) {
+                float rad = ctx.scene.env.value("ssao_radius", 0.6f);
+                float inten = ctx.scene.env.value("ssao_intensity", 1.1f);
+                ImGui::SetNextItemWidth(140);
+                if (ImGui::SliderFloat("Radius", &rad, 0.1f, 2.0f)) ctx.scene.env["ssao_radius"] = rad;
+                ImGui::SetNextItemWidth(140);
+                if (ImGui::SliderFloat("Strength", &inten, 0.2f, 3.0f)) ctx.scene.env["ssao_intensity"] = inten;
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug")) { ImGui::MenuItem("Frame stats", nullptr, false, false); ImGui::EndMenu(); }
