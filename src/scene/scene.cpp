@@ -151,6 +151,7 @@ entt::entity Scene::load_entity(const json& je) {
             rb.shape = jb.value("shape", rb.shape);
             rb.mass = jb.value("mass", rb.mass);
             rb.restitution = jb.value("restitution", rb.restitution);
+                rb.sensor = jb.value("sensor", rb.sensor);
             rb.friction = jb.value("friction", rb.friction);
             registry.emplace<RigidBody>(e, rb);
         }
@@ -313,6 +314,7 @@ json Scene::to_json() const {
                 {"mass", rb->mass},
                 {"restitution", rb->restitution},
                 {"friction", rb->friction},
+                {"sensor", rb->sensor},
             };
             if (!rb->shape.empty()) je["body"]["shape"] = rb->shape;
         }

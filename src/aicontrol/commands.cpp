@@ -144,6 +144,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 rb.shape = jb.value("shape", std::string());
                 rb.mass = jb.value("mass", rb.mass);
                 rb.restitution = jb.value("restitution", rb.restitution);
+                rb.sensor = jb.value("sensor", rb.sensor);
                 rb.friction = jb.value("friction", rb.friction);
                 scene.registry.emplace<RigidBody>(e, rb);
                 ctx.physics.sync(scene);

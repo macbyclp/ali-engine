@@ -156,6 +156,7 @@ struct RigidBody {
     float mass = 1.0f;
     float restitution = 0.2f;
     float friction = 0.5f;
+    bool sensor = false;            // trigger volume: reports overlaps, pushes nothing
     uint32_t handle = 0;
     bool registered = false;
 };

@@ -170,7 +170,7 @@ void BehaviorSystem::run_rules(Scene& scene, PhysicsSystem& physics, GameState& 
     const std::string trig = trigger;
     for (const json& rule : b->rules) {
         if (rule.value("on", std::string()) != trig) continue;
-        if (trig == "collision") {
+        if (trig == "collision" || trig == "enter" || trig == "exit") {
             std::string want = rule.value("with", std::string());
             if (!want.empty() && want != other) continue;
         }
@@ -219,6 +219,12 @@ void BehaviorSystem::tick(Scene& scene, PhysicsSystem& physics, GameState& gs, f
     for (auto [a, c] : physics.drain_contacts()) {
         run_rules(scene, physics, gs, a, "collision", name_of(scene, c), dt, to_destroy, to_spawn);
         run_rules(scene, physics, gs, c, "collision", name_of(scene, a), dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, a, "enter", name_of(scene, c), dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, c, "enter", name_of(scene, a), dt, to_destroy, to_spawn);
+    }
+    for (auto [a, c] : physics.drain_separations()) {
+        run_rules(scene, physics, gs, a, "exit", name_of(scene, c), dt, to_destroy, to_spawn);
+        run_rules(scene, physics, gs, c, "exit", name_of(scene, a), dt, to_destroy, to_spawn);
     }
 
     for (auto e : ents) {
