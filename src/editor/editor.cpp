@@ -16,10 +16,37 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 
 using nlohmann::json;
 
 namespace eng {
+
+namespace fs = std::filesystem;
+
+// Load Helvetica for the UI. We ship Liberation Sans (metric-identical, OFL) so
+// the editor looks the same everywhere; if the machine has real Helvetica or
+// Arial we use that instead.
+static void load_editor_font() {
+    ImGuiIO& io = ImGui::GetIO();
+    ImFontConfig cfg;
+    cfg.OversampleH = 3;
+    cfg.OversampleV = 2;
+    cfg.PixelSnapH = false;
+
+    const char* candidates[] = {
+        "C:/Windows/Fonts/helvetica.ttf",                       // real Helvetica, if installed
+        "/System/Library/Fonts/Helvetica.ttc",
+        "assets/fonts/LiberationSans-Regular.ttf",              // shipped clone (OFL)
+        ENGINE_ASSET_DIR "/assets/fonts/LiberationSans-Regular.ttf",
+        "C:/Windows/Fonts/arial.ttf",                           // Windows' Helvetica
+        "/Library/Fonts/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    };
+    for (const char* p : candidates)
+        if (fs::exists(p)) { io.Fonts->AddFontFromFileTTF(p, 16.0f, &cfg); return; }
+    eng::log::warn("editor: no Helvetica/Arial found, using ImGui default font");
+}
 
 Editor::Editor(GLFWwindow* window) : window_(window) {
     IMGUI_CHECKVERSION();
@@ -27,6 +54,7 @@ Editor::Editor(GLFWwindow* window) : window_(window) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.IniFilename = nullptr;   // we build our own layout every run
+    load_editor_font();
     apply_liquid_glass_theme();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 450");
