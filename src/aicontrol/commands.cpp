@@ -5,6 +5,7 @@
 #include "fx/particles.hpp"
 #include "scene/transform_system.hpp"
 #include "core/log.hpp"
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <glm/glm.hpp>
@@ -20,6 +21,32 @@ static glm::vec3 v3(const json& j, glm::vec3 fb) {
     return fb;
 }
 static json v3(const glm::vec3& v) { return json::array({v.x, v.y, v.z}); }
+
+// A world-space ray from a camera through a normalized device point.
+struct PickRay { glm::vec3 origin{0}, dir{0, 0, -1}; };
+static PickRay pick_ray(const CameraComp& cam, glm::vec2 ndc, float aspect) {
+    glm::mat4 inv = glm::inverse(cam.proj(aspect) * cam.view());
+    glm::vec4 a = inv * glm::vec4(ndc.x, ndc.y, -1.0f, 1.0f);
+    glm::vec4 b = inv * glm::vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+    glm::vec3 pa = glm::vec3(a) / a.w, pb = glm::vec3(b) / b.w;
+    return {pa, glm::normalize(pb - pa)};
+}
+static bool ray_sphere(glm::vec3 o, glm::vec3 d, glm::vec3 c, float r, float& t) {
+    glm::vec3 m = o - c;
+    float b = glm::dot(m, d);
+    float cc = glm::dot(m, m) - r * r;
+    if (cc > 0.0f && b > 0.0f) return false;
+    float disc = b * b - cc;
+    if (disc < 0.0f) return false;
+    t = -b - std::sqrt(disc);
+    if (t < 0.0f) t = 0.0f;
+    return true;
+}
+// max scale factor baked into a world matrix (for scaling local bounds radii)
+static float max_scale(const glm::mat4& m) {
+    return glm::max(glm::length(glm::vec3(m[0])),
+                    glm::max(glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2]))));
+}
 
 static json ok(const json& id, json result = json::object()) {
     return {{"id", id}, {"ok", true}, {"result", std::move(result)}};
@@ -709,6 +736,60 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 arr.push_back(je);
             }
             return ok(id, {{"entities", arr}, {"width", vw}, {"height", vh}});
+        }
+        if (method == "observe.pick") {
+            update_world_transforms(scene);
+            CameraComp& cam = scene.camera();
+            int vw = p.value("width", ctx.offscreen.width());
+            int vh = p.value("height", ctx.offscreen.height());
+            float aspect = vh ? float(vw) / vh : 1.0f;
+            glm::vec2 ndc;
+            if (p.contains("ndc") && p["ndc"].is_array() && p["ndc"].size() == 2) {
+                ndc = {p["ndc"][0].get<float>(), p["ndc"][1].get<float>()};
+            } else if (p.contains("screen") && p["screen"].is_array() && p["screen"].size() == 2) {
+                float sx = p["screen"][0].get<float>(), sy = p["screen"][1].get<float>();
+                ndc = {sx / vw * 2.0f - 1.0f, 1.0f - sy / vh * 2.0f};
+            } else {
+                return fail(id, "observe.pick needs screen:[x,y] or ndc:[x,y]");
+            }
+            float maxd = p.value("max_distance", 1000.0f);
+            PickRay ray = pick_ray(cam, ndc, aspect);
+
+            ctx.physics.sync(scene);
+            RayHit h = ctx.physics.raycast(ray.origin, ray.dir, maxd);
+            bool hit_any = h.hit;
+            float best_t = h.hit ? h.distance : maxd;
+            glm::vec3 best_pt = h.hit ? h.point : ray.origin + ray.dir * maxd;
+            glm::vec3 best_nrm = h.hit ? h.normal : glm::vec3(0, 1, 0);
+            std::string best_name;
+            if (h.hit) {
+                for (auto [e, rb] : scene.registry.view<RigidBody>().each())
+                    if (rb.registered && rb.handle == h.body)
+                        best_name = scene.registry.get<Name>(e).value;
+            }
+            // entities without a body: ray vs world-space bounding sphere
+            for (auto [e, n, wt, mr] : scene.registry.view<Name, WorldTransform, MeshRenderer>().each()) {
+                if (scene.registry.all_of<RigidBody>(e) || !mr.gpu) continue;
+                glm::vec3 c = glm::vec3(wt.matrix * glm::vec4(mr.gpu->bounds_center(), 1.0f));
+                float r = mr.gpu->bounds_radius() * max_scale(wt.matrix);
+                float t;
+                if (ray_sphere(ray.origin, ray.dir, c, r, t) && t < best_t) {
+                    hit_any = true;
+                    best_t = t;
+                    best_name = n.value;
+                    best_pt = ray.origin + ray.dir * t;
+                    best_nrm = glm::length(best_pt - c) > 1e-5f ? glm::normalize(best_pt - c)
+                                                               : glm::vec3(0, 1, 0);
+                }
+            }
+            json r = {{"hit", hit_any}};
+            if (hit_any) {
+                if (!best_name.empty()) r["entity"] = best_name;
+                r["point"] = v3(best_pt);
+                r["normal"] = v3(best_nrm);
+                r["distance"] = best_t;
+            }
+            return ok(id, r);
         }
         if (method == "observe.stats") {
             ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),
