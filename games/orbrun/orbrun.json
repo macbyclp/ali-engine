@@ -1,0 +1,1495 @@
+{
+ "environment": {
+  "ssao": true,
+  "ssao_intensity": 1.2,
+  "hdri": "assets/hdri/studio_1k.hdr",
+  "hdri_intensity": 0.7
+ },
+ "input": {
+  "fwd": [
+   "W",
+   "Up"
+  ],
+  "back": [
+   "S",
+   "Down"
+  ],
+  "left": [
+   "A",
+   "Left"
+  ],
+  "right": [
+   "D",
+   "Right"
+  ],
+  "jump": [
+   "Space"
+  ]
+ },
+ "entities": [
+  {
+   "name": "sun",
+   "light": {
+    "type": "directional",
+    "direction": [
+     -0.45,
+     -0.85,
+     -0.4
+    ],
+    "color": [
+     1.0,
+     0.96,
+     0.9
+    ],
+    "intensity": 1.15
+   }
+  },
+  {
+   "name": "camera",
+   "camera": {
+    "position": [
+     0,
+     14,
+     18
+    ],
+    "target": [
+     0,
+     1,
+     0
+    ],
+    "fov_deg": 55,
+    "follow": "player",
+    "follow_offset": [
+     0,
+     9,
+     13
+    ],
+    "follow_look": [
+     0,
+     1.2,
+     0
+    ],
+    "follow_stiffness": 4.0
+   }
+  },
+  {
+   "name": "floor",
+   "transform": {
+    "position": [
+     0,
+     -0.5,
+     0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color_map": "builtin:checker",
+    "roughness": 0.9,
+    "uv_scale": [
+     6,
+     6
+    ],
+    "build": [
+     {
+      "shape": "box",
+      "size": [
+       26.0,
+       1.0,
+       26.0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "wall_0",
+   "transform": {
+    "position": [
+     0,
+     1.0,
+     -13.0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.3,
+     0.33,
+     0.4
+    ],
+    "roughness": 0.7,
+    "build": [
+     {
+      "shape": "box",
+      "size": [
+       26.0,
+       2.0,
+       0.6
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "wall_1",
+   "transform": {
+    "position": [
+     0,
+     1.0,
+     13.0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.3,
+     0.33,
+     0.4
+    ],
+    "roughness": 0.7,
+    "build": [
+     {
+      "shape": "box",
+      "size": [
+       26.0,
+       2.0,
+       0.6
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "wall_2",
+   "transform": {
+    "position": [
+     -13.0,
+     1.0,
+     0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.3,
+     0.33,
+     0.4
+    ],
+    "roughness": 0.7,
+    "build": [
+     {
+      "shape": "box",
+      "size": [
+       0.6,
+       2.0,
+       26.0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "wall_3",
+   "transform": {
+    "position": [
+     13.0,
+     1.0,
+     0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.3,
+     0.33,
+     0.4
+    ],
+    "roughness": 0.7,
+    "build": [
+     {
+      "shape": "box",
+      "size": [
+       0.6,
+       2.0,
+       26.0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "pillar_0",
+   "transform": {
+    "position": [
+     -6,
+     1.6,
+     -4
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.7,
+     0.68,
+     0.62
+    ],
+    "metallic": 0.1,
+    "roughness": 0.5,
+    "build": [
+     {
+      "shape": "cylinder",
+      "radius": 0.7,
+      "height": 3.2,
+      "segments": 6
+     },
+     {
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       1.6,
+       0
+      ]
+     },
+     {
+      "op": "union",
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       -1.6,
+       0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "pillar_1",
+   "transform": {
+    "position": [
+     6,
+     1.6,
+     5
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.7,
+     0.68,
+     0.62
+    ],
+    "metallic": 0.1,
+    "roughness": 0.5,
+    "build": [
+     {
+      "shape": "cylinder",
+      "radius": 0.7,
+      "height": 3.2,
+      "segments": 6
+     },
+     {
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       1.6,
+       0
+      ]
+     },
+     {
+      "op": "union",
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       -1.6,
+       0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "pillar_2",
+   "transform": {
+    "position": [
+     -5,
+     1.6,
+     7
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.7,
+     0.68,
+     0.62
+    ],
+    "metallic": 0.1,
+    "roughness": 0.5,
+    "build": [
+     {
+      "shape": "cylinder",
+      "radius": 0.7,
+      "height": 3.2,
+      "segments": 6
+     },
+     {
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       1.6,
+       0
+      ]
+     },
+     {
+      "op": "union",
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       -1.6,
+       0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "pillar_3",
+   "transform": {
+    "position": [
+     7,
+     1.6,
+     -6
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.7,
+     0.68,
+     0.62
+    ],
+    "metallic": 0.1,
+    "roughness": 0.5,
+    "build": [
+     {
+      "shape": "cylinder",
+      "radius": 0.7,
+      "height": 3.2,
+      "segments": 6
+     },
+     {
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       1.6,
+       0
+      ]
+     },
+     {
+      "op": "union",
+      "shape": "box",
+      "size": [
+       2.2,
+       0.35,
+       2.2
+      ],
+      "translate": [
+       0,
+       -1.6,
+       0
+      ]
+     }
+    ]
+   },
+   "body": {
+    "type": "static"
+   }
+  },
+  {
+   "name": "player",
+   "transform": {
+    "position": [
+     9.5,
+     1.2,
+     9.5
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     0.25,
+     0.6,
+     1.0
+    ],
+    "metallic": 0.3,
+    "roughness": 0.2
+   },
+   "body": {
+    "type": "dynamic",
+    "mass": 1.0,
+    "restitution": 0.1,
+    "friction": 0.4
+   },
+   "behavior": [
+    {
+     "on": "input",
+     "action": "fwd",
+     "do": [
+      {
+       "action": "move",
+       "velocity": [
+        0,
+        0,
+        -9
+       ]
+      }
+     ]
+    },
+    {
+     "on": "input",
+     "action": "back",
+     "do": [
+      {
+       "action": "move",
+       "velocity": [
+        0,
+        0,
+        9
+       ]
+      }
+     ]
+    },
+    {
+     "on": "input",
+     "action": "left",
+     "do": [
+      {
+       "action": "move",
+       "velocity": [
+        -9,
+        0,
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "on": "input",
+     "action": "right",
+     "do": [
+      {
+       "action": "move",
+       "velocity": [
+        9,
+        0,
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "on": "inputPressed",
+     "action": "jump",
+     "do": [
+      {
+       "action": "impulse",
+       "impulse": [
+        0,
+        6,
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "on": "collision",
+     "with": "hazard",
+     "do": [
+      {
+       "action": "emit",
+       "event": "hit"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_0",
+   "transform": {
+    "position": [
+     3.22,
+     1.1,
+     1.36
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_1",
+   "transform": {
+    "position": [
+     3.46,
+     1.1,
+     8.54
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_2",
+   "transform": {
+    "position": [
+     -2.25,
+     1.1,
+     5.33
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_3",
+   "transform": {
+    "position": [
+     -10.66,
+     1.1,
+     4.32
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_4",
+   "transform": {
+    "position": [
+     -7.43,
+     1.1,
+     -3.14
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_5",
+   "transform": {
+    "position": [
+     -1.75,
+     1.1,
+     -4.3
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_6",
+   "transform": {
+    "position": [
+     4.03,
+     1.1,
+     -9.54
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "orb_7",
+   "transform": {
+    "position": [
+     6.42,
+     1.1,
+     -2.6
+    ],
+    "scale": [
+     0.55,
+     0.55,
+     0.55
+    ]
+   },
+   "mesh": {
+    "primitive": "sphere",
+    "base_color": [
+     1.0,
+     0.85,
+     0.2
+    ],
+    "emissive": [
+     1.4,
+     1.0,
+     0.15
+    ],
+    "roughness": 0.3
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 120
+      }
+     ]
+    },
+    {
+     "on": "enter",
+     "with": "player",
+     "do": [
+      {
+       "action": "addState",
+       "key": "orbs",
+       "value": 1
+      },
+      {
+       "action": "emit",
+       "event": "grab"
+      },
+      {
+       "action": "destroy"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hazard_pivot",
+   "transform": {
+    "position": [
+     0,
+     1.1,
+     0
+    ]
+   },
+   "mesh": {
+    "primitive": "procedural",
+    "base_color": [
+     0.55,
+     0.1,
+     0.1
+    ],
+    "emissive": [
+     0.9,
+     0.05,
+     0.05
+    ],
+    "build": [
+     {
+      "shape": "cylinder",
+      "radius": 0.55,
+      "height": 2.4
+     }
+    ]
+   },
+   "behavior": [
+    {
+     "on": "tick",
+     "do": [
+      {
+       "action": "spin",
+       "axis": [
+        0,
+        1,
+        0
+       ],
+       "speed_deg": 20
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hazard",
+   "parent": "hazard_pivot",
+   "transform": {
+    "position": [
+     5.0,
+     0.0,
+     0
+    ],
+    "scale": [
+     7.0,
+     1.7,
+     0.6
+    ]
+   },
+   "mesh": {
+    "primitive": "cube",
+    "base_color": [
+     0.9,
+     0.13,
+     0.13
+    ],
+    "emissive": [
+     0.7,
+     0.0,
+     0.0
+    ],
+    "roughness": 0.4
+   },
+   "body": {
+    "type": "kinematic",
+    "sensor": true
+   }
+  },
+  {
+   "name": "hud_score",
+   "ui": {
+    "kind": "panel",
+    "anchor": "top-left",
+    "pos": [
+     0.03,
+     0.03
+    ],
+    "size": [
+     0.24,
+     0.08
+    ],
+    "color": [
+     0,
+     0,
+     0,
+     0.45
+    ],
+    "text": "Orbs 0 / 8",
+    "text_size": 26
+   }
+  },
+  {
+   "name": "hud_time",
+   "ui": {
+    "kind": "panel",
+    "anchor": "top-right",
+    "pos": [
+     0.03,
+     0.03
+    ],
+    "size": [
+     0.2,
+     0.08
+    ],
+    "color": [
+     0,
+     0,
+     0,
+     0.45
+    ],
+    "text": "40s",
+    "text_size": 26
+   }
+  },
+  {
+   "name": "hud_banner",
+   "ui": {
+    "kind": "panel",
+    "anchor": "center",
+    "pos": [
+     0,
+     0
+    ],
+    "size": [
+     0.5,
+     0.14
+    ],
+    "color": [
+     0.05,
+     0.05,
+     0.08,
+     0.8
+    ],
+    "text": "",
+    "text_size": 44,
+    "visible": false
+   }
+  },
+  {
+   "name": "hud_help",
+   "ui": {
+    "kind": "text",
+    "anchor": "bottom",
+    "pos": [
+     0,
+     0.04
+    ],
+    "size": [
+     0.5,
+     0.05
+    ],
+    "text": "WASD move   Space jump   dodge the red bar",
+    "text_size": 18,
+    "text_color": [
+     1,
+     1,
+     1,
+     0.6
+    ]
+   }
+  },
+  {
+   "name": "manager",
+   "behavior": [
+    {
+     "on": "start",
+     "do": [
+      {
+       "action": "setState",
+       "key": "orbs",
+       "value": 0
+      },
+      {
+       "action": "setState",
+       "key": "over",
+       "value": 0
+      },
+      {
+       "action": "setUI",
+       "target": "hud_score",
+       "text": "Orbs ${orbs} / 8"
+      },
+      {
+       "action": "timer",
+       "after": 10,
+       "event": "t30"
+      },
+      {
+       "action": "timer",
+       "after": 20,
+       "event": "t20"
+      },
+      {
+       "action": "timer",
+       "after": 30,
+       "event": "t10"
+      },
+      {
+       "action": "timer",
+       "after": 35,
+       "event": "t5"
+      },
+      {
+       "action": "timer",
+       "after": 40.0,
+       "event": "timeup"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "grab",
+     "do": [
+      {
+       "action": "setUI",
+       "target": "hud_score",
+       "text": "Orbs ${orbs} / 8"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "grab",
+     "if": {
+      "key": "orbs",
+      "gte": 8
+     },
+     "do": [
+      {
+       "action": "emit",
+       "event": "win"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "t30",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setUI",
+       "target": "hud_time",
+       "text": "30s"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "t20",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setUI",
+       "target": "hud_time",
+       "text": "20s"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "t10",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setUI",
+       "target": "hud_time",
+       "text": "10s"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "t5",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setUI",
+       "target": "hud_time",
+       "text": "5s!"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "timeup",
+     "if": {
+      "key": "orbs",
+      "lt": 8
+     },
+     "do": [
+      {
+       "action": "emit",
+       "event": "lose"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "hit",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "emit",
+       "event": "lose"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "win",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setState",
+       "key": "over",
+       "value": 1
+      },
+      {
+       "action": "setUI",
+       "target": "hud_banner",
+       "text": "ALL ORBS!  YOU WIN",
+       "visible": true
+      },
+      {
+       "action": "setUI",
+       "target": "hud_time",
+       "text": "done"
+      }
+     ]
+    },
+    {
+     "on": "event",
+     "name": "lose",
+     "if": {
+      "key": "over",
+      "lt": 1
+     },
+     "do": [
+      {
+       "action": "setState",
+       "key": "over",
+       "value": 1
+      },
+      {
+       "action": "setUI",
+       "target": "hud_banner",
+       "text": "GAME OVER",
+       "visible": true
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

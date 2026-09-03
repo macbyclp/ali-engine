@@ -201,10 +201,17 @@ entt::entity Scene::load_entity(const json& je) {
                 ui.size = {ju["size"][0].get<float>(), ju["size"][1].get<float>()};
             if (ju.contains("color") && ju["color"].size() == 4)
                 ui.color = {ju["color"][0], ju["color"][1], ju["color"][2], ju["color"][3]};
+            if (ju.contains("fill_color") && ju["fill_color"].size() == 4)
+                ui.fill_color = {ju["fill_color"][0], ju["fill_color"][1],
+                                 ju["fill_color"][2], ju["fill_color"][3]};
+            if (ju.contains("text_color") && ju["text_color"].size() == 4)
+                ui.text_color = {ju["text_color"][0], ju["text_color"][1],
+                                 ju["text_color"][2], ju["text_color"][3]};
             ui.text = ju.value("text", ui.text);
             ui.text_size = ju.value("text_size", ui.text_size);
             ui.value = ju.value("value", ui.value);
             ui.order = ju.value("order", ui.order);
+            ui.visible = ju.value("visible", ui.visible);
             registry.emplace<UIElement>(e, ui);
         }
         if (je.contains("character")) {
@@ -378,7 +385,9 @@ json Scene::to_json() const {
                 {"size", json::array({ui->size.x, ui->size.y})},
                 {"color", json::array({ui->color.x, ui->color.y, ui->color.z, ui->color.w})},
                 {"text", ui->text}, {"text_size", ui->text_size},
-                {"value", ui->value}, {"order", ui->order},
+                {"value", ui->value}, {"order", ui->order}, {"visible", ui->visible},
+                {"text_color", json::array({ui->text_color.x, ui->text_color.y,
+                                            ui->text_color.z, ui->text_color.w})},
             };
         }
         if (auto* em = registry.try_get<ParticleEmitter>(e)) {

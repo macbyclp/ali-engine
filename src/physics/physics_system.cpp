@@ -40,14 +40,27 @@ static BodyDesc describe(const glm::mat4& world, const RigidBody& rb, const Mesh
     std::string shape = rb.shape;
     if (shape.empty() && mr) shape = (mr->primitive == "sphere") ? "sphere" : "box";
 
+    // primitives bake their size into a unit-ish local mesh, so Transform scale
+    // is the extent. gltf / procedural / skinned bake real dimensions into the
+    // geometry, so take the collider size from the mesh bounds instead.
+    bool baked_geometry = mr && mr->gpu &&
+                          (mr->primitive == "gltf" || mr->primitive == "procedural" ||
+                           mr->primitive == "skinned");
+    glm::vec3 local_he = baked_geometry ? mr->gpu->bounds_half_extent() : glm::vec3(0.5f);
+    if (baked_geometry) {
+        glm::vec3 c = mr->gpu->bounds_center();
+        d.position += d.rotation * (c * scale);   // shift the body to the mesh centroid
+    }
+
     if (shape == "sphere") {
         d.shape = "sphere";
-        d.radius = 0.5f * glm::max(scale.x, glm::max(scale.y, scale.z));
+        float r = baked_geometry ? mr->gpu->bounds_radius() : 0.5f;
+        d.radius = r * glm::max(scale.x, glm::max(scale.y, scale.z));
     } else {
         d.shape = "box";
-        glm::vec3 h = 0.5f * glm::abs(scale);
+        glm::vec3 h = local_he * glm::abs(scale);
         if (mr && mr->primitive == "plane") h = glm::vec3(glm::abs(scale.x), 0.05f, glm::abs(scale.z));
-        d.half_extents = h;
+        d.half_extents = glm::max(h, glm::vec3(0.02f));
     }
     return d;
 }

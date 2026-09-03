@@ -37,6 +37,7 @@ Mesh::Mesh(const std::vector<Vertex>& verts_in, const std::vector<uint32_t>& ind
     for (const auto& v : verts) { lo = glm::min(lo, v.pos); hi = glm::max(hi, v.pos); }
     if (!verts.empty()) {
         bc_ = 0.5f * (lo + hi);
+        he_ = 0.5f * (hi - lo);
         float r = 0.0f;
         for (const auto& v : verts) r = glm::max(r, glm::length(v.pos - bc_));
         br_ = r;

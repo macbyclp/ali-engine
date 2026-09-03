@@ -32,6 +32,7 @@ public:
     unsigned ebo() const { return ebo_; }
     glm::vec3 bounds_center() const { return bc_; }
     float bounds_radius() const { return br_; }
+    glm::vec3 bounds_half_extent() const { return he_; }
 
     static std::shared_ptr<Mesh> cube();
     static std::shared_ptr<Mesh> sphere(int segments = 32);
@@ -42,6 +43,7 @@ private:
     int count_ = 0;
     glm::vec3 bc_{0};
     float br_ = 1.0f;
+    glm::vec3 he_{0.5f};
     void release();
 };
 
