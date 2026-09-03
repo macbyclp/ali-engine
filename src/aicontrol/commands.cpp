@@ -96,6 +96,41 @@ static eng::Shader& depth_shader() {
     return *s;
 }
 
+// Axis-aligned world bounds of an entity's mesh / terrain. Returns false when the
+// entity has no drawable extent (bare light / camera).
+static bool world_aabb(entt::registry& reg, entt::entity e, glm::vec3& mn, glm::vec3& mx) {
+    glm::vec3 lmn, lmx;
+    if (auto* tc = reg.try_get<TerrainComp>(e)) {
+        float half = tc->data.size * 0.5f;
+        float top = tc->data.height;
+        for (float v : tc->data.heights) top = glm::max(top, v * tc->data.height);
+        lmn = {-half, 0.0f, -half};
+        lmx = {half, top, half};
+    } else if (auto* mr = reg.try_get<MeshRenderer>(e); mr && mr->gpu) {
+        glm::vec3 he;
+        if (mr->primitive == "cube" || mr->primitive == "sphere") he = glm::vec3(0.5f);
+        else if (mr->primitive == "plane") he = glm::vec3(1.0f, 0.02f, 1.0f);
+        else he = glm::vec3(mr->gpu->bounds_radius());
+        glm::vec3 c = mr->gpu->bounds_center();
+        lmn = c - he;
+        lmx = c + he;
+    } else {
+        return false;
+    }
+    const glm::mat4* w = reg.try_get<WorldTransform>(e)
+                             ? &reg.get<WorldTransform>(e).matrix : nullptr;
+    glm::mat4 m = w ? *w : glm::mat4(1.0f);
+    mn = glm::vec3(1e9f);
+    mx = glm::vec3(-1e9f);
+    for (int i = 0; i < 8; ++i) {
+        glm::vec3 corner{(i & 1) ? lmx.x : lmn.x, (i & 2) ? lmx.y : lmn.y, (i & 4) ? lmx.z : lmn.z};
+        glm::vec3 p = glm::vec3(m * glm::vec4(corner, 1.0f));
+        mn = glm::min(mn, p);
+        mx = glm::max(mx, p);
+    }
+    return true;
+}
+
 // Flat perception pass: clears `ctx.offscreen` (resized to w x h) and draws every
 // visible mesh with `sh`, calling `per(entity, model, view, proj)` before each
 // draw to bind per-entity uniforms. Restores the default framebuffer after.
@@ -921,6 +956,78 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (!ctx.offscreen.save_png(path)) return fail(id, "depth write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h},
                            {"near", near_z}, {"far", far_z}});
+        }
+        if (method == "observe.describe") {
+            update_world_transforms(scene);
+            CameraComp& cam = scene.camera();
+            int vw = ctx.offscreen.width(), vh = ctx.offscreen.height();
+            glm::mat4 vp = cam.proj(vh ? float(vw) / vh : 1.0f) * cam.view();
+
+            auto kind_of = [&](entt::entity e) -> const char* {
+                if (scene.registry.all_of<CameraComp>(e)) return "camera";
+                if (scene.registry.any_of<DirectionalLight, PunctualLight>(e)) return "light";
+                if (scene.registry.all_of<TerrainComp>(e)) return "terrain";
+                if (scene.registry.all_of<RigidBody>(e)) return "body";
+                if (scene.registry.all_of<MeshRenderer>(e)) return "mesh";
+                return "mesh";
+            };
+
+            struct Box { std::string name; glm::vec3 mn, mx, c; bool has; };
+            std::vector<Box> boxes;
+            json ents = json::array();
+            for (auto [e, n, wt] : scene.registry.view<Name, WorldTransform>().each()) {
+                glm::vec3 mn, mx;
+                bool has = world_aabb(scene.registry, e, mn, mx);
+                glm::vec4 clip = vp * glm::vec4(wt.position, 1.0f);
+                bool on_screen = clip.w > 0.0f && std::abs(clip.x) <= clip.w &&
+                                 std::abs(clip.y) <= clip.w && clip.z >= -clip.w && clip.z <= clip.w;
+                json je = {{"name", n.value}, {"kind", kind_of(e)},
+                           {"position", v3(wt.position)}, {"on_screen", on_screen}};
+                if (has) je["size"] = json::array({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
+                ents.push_back(je);
+                if (has) boxes.push_back({n.value, mn, mx, 0.5f * (mn + mx), true});
+            }
+
+            // pairwise relations between entities whose AABBs are close
+            json rels = json::array();
+            auto overlap = [](float amn, float amx, float bmn, float bmx) {
+                return amn <= bmx && bmn <= amx;
+            };
+            auto within_box = [](const Box& a, const Box& b) {
+                return a.mn.x >= b.mn.x - 1e-3f && a.mx.x <= b.mx.x + 1e-3f &&
+                       a.mn.y >= b.mn.y - 1e-3f && a.mx.y <= b.mx.y + 1e-3f &&
+                       a.mn.z >= b.mn.z - 1e-3f && a.mx.z <= b.mx.z + 1e-3f;
+            };
+            for (size_t i = 0; i < boxes.size(); ++i)
+                for (size_t j = i + 1; j < boxes.size(); ++j) {
+                    // orient so `hi` is the upper / `a` the candidate that rests on `b`
+                    const Box& bi = boxes[i];
+                    const Box& bj = boxes[j];
+                    const Box& a = bi.c.y >= bj.c.y ? bi : bj;   // higher one
+                    const Box& b = bi.c.y >= bj.c.y ? bj : bi;
+                    glm::vec3 ext_a = a.mx - a.mn, ext_b = b.mx - b.mn;
+                    float ra = glm::length(ext_a) * 0.5f, rb = glm::length(ext_b) * 0.5f;
+                    float cd = glm::length(a.c - b.c);
+                    if (cd > 1.6f * (ra + rb) + 0.5f) continue;   // not close: skip
+                    bool xz = overlap(a.mn.x, a.mx.x, b.mn.x, b.mx.x) &&
+                              overlap(a.mn.z, a.mx.z, b.mn.z, b.mx.z);
+                    const char* rel = nullptr;
+                    std::string ra_name = a.name, rb_name = b.name;
+                    if (within_box(a, b)) rel = "inside";
+                    else if (within_box(b, a)) { rel = "inside"; std::swap(ra_name, rb_name); }
+                    else if (xz && a.c.y > b.c.y && a.mn.y <= b.mx.y + 0.25f &&
+                             a.mn.y >= b.mx.y - 0.5f * ext_a.y) rel = "on";
+                    else if (xz && a.mn.y > b.mx.y + 0.1f) rel = "above";
+                    else if (bi.mx.x < bj.mn.x) { rel = "left_of"; ra_name = bi.name; rb_name = bj.name; }
+                    else if (bj.mx.x < bi.mn.x) { rel = "left_of"; ra_name = bj.name; rb_name = bi.name; }
+                    else if (cd < 1.4f * (ra + rb) &&
+                             glm::max(ra, rb) < 3.0f * glm::min(ra, rb)) rel = "near";
+                    if (rel) rels.push_back({{"a", ra_name}, {"rel", rel}, {"b", rb_name}});
+                }
+
+            return ok(id, {{"camera", {{"position", v3(cam.position)},
+                                       {"forward", v3(glm::normalize(cam.target - cam.position))}}},
+                           {"entities", ents}, {"relations", rels}});
         }
         if (method == "observe.stats") {
             ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),
