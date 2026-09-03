@@ -212,6 +212,25 @@ entt::entity Scene::load_entity(const json& je) {
             registry.emplace<AnimatorController>(e, animator_from_json(je["animator"]));
             registry.get_or_emplace<AnimationPlayer>(e);
         }
+        if (je.contains("terrain")) {
+            const auto& jt = je["terrain"];
+            TerrainComp tc;
+            tc.data.size = jt.value("size", tc.data.size);
+            tc.data.resolution = jt.value("resolution", tc.data.resolution);
+            tc.data.height = jt.value("height", tc.data.height);
+            tc.data.octaves = jt.value("octaves", tc.data.octaves);
+            tc.data.frequency = jt.value("frequency", tc.data.frequency);
+            tc.data.seed = jt.value("seed", tc.data.seed);
+            if (jt.contains("heights") && jt["heights"].is_array()) {
+                tc.data.heights = jt["heights"].get<std::vector<float>>();
+                tc.data.sculpted = true;
+            } else {
+                tc.data.regenerate_noise();
+            }
+            registry.emplace<TerrainComp>(e, std::move(tc));
+            auto& mr = registry.get_or_emplace<MeshRenderer>(e);
+            mr.primitive = "terrain";
+        }
         if (je.contains("camera")) {
             const auto& jc = je["camera"];
             CameraComp c;
@@ -306,6 +325,17 @@ json Scene::to_json() const {
         }
         if (auto* ac = registry.try_get<AnimatorController>(e)) {
             if (!ac->states.empty()) je["animator"] = animator_to_json(*ac);
+        }
+        if (auto* tc = registry.try_get<TerrainComp>(e)) {
+            const TerrainData& td = tc->data;
+            je["terrain"] = {{"size", td.size}, {"resolution", td.resolution},
+                             {"height", td.height}, {"octaves", td.octaves},
+                             {"frequency", td.frequency}, {"seed", td.seed}};
+            if (td.sculpted) {
+                json h = json::array();
+                for (float v : td.heights) h.push_back(std::round(v * 1000.0f) / 1000.0f);
+                je["terrain"]["heights"] = std::move(h);
+            }
         }
         if (auto* cc = registry.try_get<CharacterController>(e)) {
             je["character"] = {{"radius", cc->radius}, {"height", cc->height},
@@ -446,6 +476,17 @@ void Scene::resolve_gpu_meshes() {
             MeshData d = build_procedural(mr.build);
             if (d.idx.empty()) d = make_box(glm::vec3(1));
             mr.gpu = d.upload();
+            continue;
+        }
+        if (mr.primitive == "terrain") {
+            auto* tc = registry.try_get<TerrainComp>(e);
+            if (tc) {
+                if ((int)tc->data.heights.size() != tc->data.resolution * tc->data.resolution)
+                    tc->data.regenerate_noise();
+                mr.gpu = tc->data.build().upload();
+            } else {
+                mr.gpu = Mesh::plane(10.0f);
+            }
             continue;
         }
 
