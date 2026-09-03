@@ -177,7 +177,12 @@ edemez, yani aynı oyunu bir insan pencerede, bir AI de JSON kanalından oynayab
 `terrain.create` fraktal-gürültü heightmap üretir (kare, orijin merkezli, kenara
 doğru ada-sönümü). `terrain.sculpt` fırçayla yükseltir/alçaltır/yumuşatır/düzler.
 Sahne JSON'una gürültü parametreleri olarak yazılır; sculpt edildiyse `heights`
-dizisi de eklenir (yeniden yüklemede aynen gelir). Fizik çarpışması yok (henüz).
+dizisi de eklenir (yeniden yüklemede aynen gelir).
+
+**Fizik çarpışması:** terrain entity'sine bir `body` eklenirse (herhangi bir tip —
+her zaman static'e çevrilir) heightmap'e birebir uyan bir Jolt `HeightFieldShape`
+collider kurulur, böylece cisimler zeminin üstüne oturur. `terrain.sculpt`
+sonrası collider otomatik yeniden üretilir.
 
 ### Işık (`light` bloğu)
 `entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:

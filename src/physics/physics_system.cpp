@@ -60,7 +60,20 @@ void PhysicsSystem::sync(Scene& scene) {
     for (auto [e, wt, rb] : reg.view<WorldTransform, RigidBody>().each()) {
         if (rb.registered) continue;
         const MeshRenderer* mr = reg.try_get<MeshRenderer>(e);
-        rb.handle = world_.add_body(describe(wt.matrix, rb, mr));
+        BodyDesc bd = describe(wt.matrix, rb, mr);
+        // A terrain entity gets a collider matching its heightfield (always static).
+        if (const TerrainComp* tc = reg.try_get<TerrainComp>(e)) {
+            const TerrainData& td = tc->data;
+            if ((int)td.heights.size() == td.resolution * td.resolution && td.resolution >= 2) {
+                bd.type = BodyType::Static;
+                bd.shape = "heightfield";
+                bd.hf_samples = td.heights.data();
+                bd.hf_count = td.resolution;
+                bd.hf_size = td.size;
+                bd.hf_height = td.height;
+            }
+        }
+        rb.handle = world_.add_body(bd);
         rb.registered = true;
         handle_to_entity_[rb.handle] = e;
     }
@@ -103,6 +116,17 @@ void PhysicsSystem::teleport(Scene& scene, const std::string& name) {
     if (!rb || !t || !rb->registered) return;
     world_.set_transform(rb->handle, t->position, glm::quat(glm::radians(t->euler_deg)));
     world_.set_linear_velocity(rb->handle, glm::vec3(0));
+}
+
+void PhysicsSystem::rebuild_body(Scene& scene, const std::string& name) {
+    auto e = scene.find(name);
+    if (e == entt::null) return;
+    auto* rb = scene.registry.try_get<RigidBody>(e);
+    if (!rb || !rb->registered) return;
+    world_.remove_body(rb->handle);
+    handle_to_entity_.erase(rb->handle);
+    rb->registered = false;
+    sync(scene);
 }
 
 void PhysicsSystem::impulse(const std::string& name, Scene& scene, const glm::vec3& j) {

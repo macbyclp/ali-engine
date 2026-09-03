@@ -13,6 +13,7 @@ public:
     void sync(Scene& scene);                    // reconcile bodies with ECS
     void step(Scene& scene, float dt, int substeps = 1);
     void teleport(Scene& scene, const std::string& name);  // push ECS transform -> body
+    void rebuild_body(Scene& scene, const std::string& name);  // drop + recreate body (e.g. sculpted terrain)
 
     void impulse(const std::string& name, Scene& scene, const glm::vec3& j);
     void set_velocity(const std::string& name, Scene& scene, const glm::vec3& v);

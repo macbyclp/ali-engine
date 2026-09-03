@@ -194,6 +194,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             tc->data.sculpt(at.x, at.z, p.value("radius", 5.0f), p.value("strength", 1.0f),
                             p.value("mode", std::string("raise")));
             scene.resolve_gpu_meshes();
+            ctx.physics.rebuild_body(scene, p.at("name").get<std::string>());  // refresh terrain collider
             return ok(id);
         }
         if (method == "terrain.height") {
