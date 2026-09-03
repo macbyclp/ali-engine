@@ -32,8 +32,17 @@ public:
 
 private:
     GLFWwindow* window_;
-    std::string selected_;
+    std::string selected_;                 // primary selection
+    std::vector<std::string> multi_;       // additional selected entities
     std::string selected_anim_;   // entity whose animation the timeline shows
+
+    // undo/redo: full-scene JSON snapshots, committed once an edit gesture ends
+    std::vector<std::string> undo_, redo_;
+    std::string hist_snap_;
+    void commit_history(CommandContext&);
+    void do_undo(CommandContext&);
+    void do_redo(CommandContext&);
+    bool is_selected(const std::string& name) const;
     int vp_w_ = 1280, vp_h_ = 720;
     bool play_ = false;
     bool layout_built_ = false;
