@@ -13,7 +13,8 @@ EXE="build/Release/engine.exe"
 [ -f "$EXE" ] || { echo "missing $EXE -- build Release first"; exit 1; }
 
 rm -rf "$OUT" "dist/${NAME}.zip"
-mkdir -p "$OUT/docs" "$OUT/scenes" "$OUT/tools" "$OUT/assets/fonts"
+mkdir -p "$OUT/docs" "$OUT/scenes" "$OUT/tools" "$OUT/assets/fonts" "$OUT/plugins"
+: > "$OUT/plugins/.keep"
 
 cp "$EXE" "$OUT/"
 # VC++ runtime -- pull from the VS redist dir, fall back to the system32 copies
@@ -25,7 +26,7 @@ done
 
 cp README.md LICENSE ARCHITECTURE.md "$OUT/"
 cp packaging/RELEASE.txt "$OUT/"
-cp docs/AI-PROTOCOL.md "$OUT/docs/"
+cp docs/AI-PROTOCOL.md docs/PLUGINS.md "$OUT/docs/"
 cp scenes/*.json "$OUT/scenes/"
 cp tools/drive.py tools/gen_media.py "$OUT/tools/"
 cp assets/fonts/LiberationSans-Regular.ttf assets/fonts/LiberationSans-LICENSE.txt "$OUT/assets/fonts/"

@@ -67,6 +67,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
 | `render.set` | `{ssao?, ssao_radius?, ssao_intensity?, ...}` — sahne `environment` bloğuna yazar | `{environment}` |
 | `render.get` | — | `{environment}` |
+| `plugin.list` | — | `{plugins:[{name, version, dll}]}` |
+| `plugin.load` | `{path}` | `{name}` — bir eklenti kütüphanesi yükler (bkz. docs/PLUGINS.md) |
+| _(eklenti metotları)_ | — | çekirdek tanımadığı metotlar eklentilere düşer |
 | `ui.add` / `ui.set` | `{name, kind?, anchor?, pos?, size?, color?, fill_color?, text?, text_size?, text_color?, value?, visible?, order?}` | `{name}` |
 | `ui.remove` | `{name}` | — |
 | `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
