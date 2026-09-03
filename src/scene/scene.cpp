@@ -84,6 +84,7 @@ void Scene::clear() {
     registry.clear();
     index_.clear();
     env = json::object();
+    input_map = json::object();
 }
 
 entt::entity Scene::load_entity(const json& je) {
@@ -247,6 +248,7 @@ entt::entity Scene::load_entity(const json& je) {
 void Scene::load_json(const json& j) {
     clear();
     if (j.contains("environment") && j["environment"].is_object()) env = j["environment"];
+    if (j.contains("input") && j["input"].is_object()) input_map = j["input"];
     for (const auto& je : j.value("entities", json::array())) load_entity(je);
     resolve_gpu_meshes();
 }
@@ -254,6 +256,7 @@ void Scene::load_json(const json& j) {
 json Scene::to_json() const {
     json out;
     if (env.is_object() && !env.empty()) out["environment"] = env;
+    if (input_map.is_object() && !input_map.empty()) out["input"] = input_map;
     out["entities"] = json::array();
     for (auto [e, n] : registry.view<Name>().each()) {
         json je;

@@ -24,6 +24,11 @@ public:
     // reads it each frame with sensible fallbacks.
     nlohmann::json env = nlohmann::json::object();
 
+    // Optional input bindings the scene ships with: { "action": ["Key", ...] }.
+    // main() feeds these into the InputSystem on load so a game scene is playable
+    // straight away.
+    nlohmann::json input_map = nlohmann::json::object();
+
     entt::entity create(const std::string& name);   // auto-suffixes on collision
     bool destroy(const std::string& name);
     entt::entity find(const std::string& name) const;
