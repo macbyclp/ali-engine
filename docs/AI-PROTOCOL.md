@@ -58,8 +58,8 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `character.move` | `{name, direction:[x,y,z], speed?}` | — |
 | `character.jump` | `{name}` | — |
 | `character.moveTo` | `{name, target:[x,y,z]}` | `{waypoints}` — navmesh yolu |
-| `nav.bake` | `{min?, max?, cell?}` | — statik gövdelerden grid |
-| `nav.path` | `{from, to}` | `{waypoints:[...]}` |
+| `nav.bake` | `{min?, max?, cell?}` | — statik/kinematik gövdelerden + mesh sınırlarından grid |
+| `nav.path` | `{from, to}` | `{waypoints:[...]}` — A* + görüş-hattı düzleştirme (string-pull) |
 | `particles.emit` | `{name, position?, rate?, lifetime?, velocity?, velocity_spread?, gravity?, start_color?, end_color?, start_size?, end_size?}` | — |
 | `particles.stop` | `{name}` | — |
 | `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?}` | `{handle}` |
