@@ -67,6 +67,10 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
 | `render.set` | `{ssao?, ssao_radius?, ssao_intensity?, ...}` — sahne `environment` bloğuna yazar | `{environment}` |
 | `render.get` | — | `{environment}` |
+| `input.map` | `{action, keys}` veya `{bindings:{action:[keys]}}` | `{bindings}` |
+| `input.unmap` | `{action?}` (yoksa hepsi) | — |
+| `input.state` | — | `{actions:{a:{down,pressed,released}}, mouse, mouse_delta}` |
+| `input.set` | `{action, down?}` veya `{actions:{a:bool}}` | — sanal girdi (AI kendi oyununu oynar) |
 | `plugin.list` | — | `{plugins:[{name, version, dll}]}` |
 | `plugin.load` | `{path}` | `{name}` — bir eklenti kütüphanesi yükler (bkz. docs/PLUGINS.md) |
 | _(eklenti metotları)_ | — | çekirdek tanımadığı metotlar eklentilere düşer |
@@ -150,6 +154,18 @@ Sahne JSON'unun üst düzey `environment` objesi frame ayarlarını tutar; `rend
 ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (~0.6),
 `ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
+
+### Girdi (input)
+Adlandırılmış aksiyonlar: `input.map` ile bir aksiyona tuş/fare/gamepad bağlarsın,
+oyun mantığı sadece aksiyon adını sorar. Tuş adları: `A`–`Z`, `0`–`9`, `Space`,
+`Enter`, `Escape`, `Tab`, `Left/Right/Up/Down`, `Shift`, `Ctrl`, `Alt`, `F1`–`F12`,
+`Mouse1`–`Mouse3`, `Pad:A/B/X/Y/LB/RB/Start/Back/Up/Down/Left/Right`.
+
+Davranış tetikleri: `{"on":"input","action":"..."}` (basılı olduğu sürece),
+`inputPressed` (basma anı, bir kez), `inputReleased` (bırakma anı).
+
+**`input.set` sanal girdi enjekte eder** — oyun kodu bunu gerçek tuştan ayırt
+edemez, yani aynı oyunu bir insan pencerede, bir AI de JSON kanalından oynayabilir.
 
 ### Terrain (`terrain` bloğu)
 `terrain.create` fraktal-gürültü heightmap üretir (kare, orijin merkezli, kenara

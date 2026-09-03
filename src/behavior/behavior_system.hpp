@@ -1,5 +1,6 @@
 #pragma once
 #include "game/gamestate.hpp"
+#include "input/input.hpp"
 #include "physics/physics_system.hpp"
 #include "scene/scene.hpp"
 #include <string>
@@ -14,9 +15,12 @@ public:
     void tick(Scene& scene, PhysicsSystem& physics, GameState& gs, float dt);
     void emit(const std::string& event) { pending_events_.push_back(event); }
     void reset() { pending_events_.clear(); }
+    // Optional: enables the `on: input / inputPressed / inputReleased` triggers.
+    void set_input(InputSystem* in) { input_ = in; }
 
 private:
     std::vector<std::string> pending_events_;
+    InputSystem* input_ = nullptr;
 
     void run_rules(Scene&, PhysicsSystem&, GameState&, entt::entity self, const char* trigger,
                    const std::string& other, float dt,

@@ -315,6 +315,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
             for (int i = 0; i < glm::clamp(steps, 1, 100000); ++i) {
+                if (ctx.input) ctx.input->update(dt);
                 if (ctx.plugins) ctx.plugins->update(ctx, dt);
                 update_animators(scene, dt);
                 update_animations(scene, dt);
@@ -422,6 +423,43 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             return ok(id, {{"environment", scene.env}});
         }
         if (method == "render.get") return ok(id, {{"environment", scene.env}});
+        if (method == "input.map") {
+            if (!ctx.input) return fail(id, "input unavailable");
+            if (p.contains("bindings") && p["bindings"].is_object()) {
+                for (auto& [a, keys] : p["bindings"].items())
+                    ctx.input->bind(a, keys.get<std::vector<std::string>>());
+            } else {
+                std::string a = p.at("action").get<std::string>();
+                const json& k = p.at("keys");
+                ctx.input->bind(a, k.is_string() ? std::vector<std::string>{k.get<std::string>()}
+                                                 : k.get<std::vector<std::string>>());
+            }
+            return ok(id, {{"bindings", ctx.input->bindings_json()}});
+        }
+        if (method == "input.unmap") {
+            if (!ctx.input) return fail(id, "input unavailable");
+            if (p.contains("action")) ctx.input->unbind(p["action"].get<std::string>());
+            else ctx.input->clear();
+            return ok(id);
+        }
+        if (method == "input.state") {
+            if (!ctx.input) return fail(id, "input unavailable");
+            return ok(id, ctx.input->state_json());
+        }
+        // Scripted / AI input: hold or release an action. Gameplay cannot tell it
+        // apart from a key press, so an agent can play its own game.
+        if (method == "input.set") {
+            if (!ctx.input) return fail(id, "input unavailable");
+            if (p.contains("actions") && p["actions"].is_object()) {
+                for (auto& [a, v] : p["actions"].items())
+                    ctx.input->set_virtual(a, v.get<bool>());
+            } else if (p.contains("action")) {
+                ctx.input->set_virtual(p["action"].get<std::string>(), p.value("down", true));
+            } else {
+                ctx.input->clear_virtual();
+            }
+            return ok(id);
+        }
         if (method == "audio.bus") {
             std::string bus = p.value("bus", std::string("master"));
             if (p.contains("volume")) ctx.audio.set_bus_volume(bus, p["volume"].get<float>());
