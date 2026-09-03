@@ -25,11 +25,14 @@ public:
         for (auto [e, wt, rb] : scene.registry.view<WorldTransform, RigidBody>().each()) {
             if (rb.type == "dynamic") continue;   // only static/kinematic obstacles
             auto* mrp = scene.registry.try_get<MeshRenderer>(e);
-            if (mrp && mrp->primitive == "plane") continue;   // the ground itself
+            if (mrp && (mrp->primitive == "plane" || mrp->primitive == "terrain"))
+                continue;   // walkable surfaces, not obstacles
             glm::vec3 c = wt.position;
             glm::vec3 s{glm::length(glm::vec3(wt.matrix[0])), 0,
                         glm::length(glm::vec3(wt.matrix[2]))};
-            float hx = 0.5f * s.x + 0.5f * cell_, hz = 0.5f * s.z + 0.5f * cell_;
+            float mesh_r = (mrp && mrp->gpu) ? mrp->gpu->bounds_radius() : 0.5f;
+            float hx = std::max(0.5f * s.x, mesh_r * s.x) + 0.5f * cell_;
+            float hz = std::max(0.5f * s.z, mesh_r * s.z) + 0.5f * cell_;
             int x0 = clampx(world_to_x(c.x - hx)), x1 = clampx(world_to_x(c.x + hx));
             int z0 = clampz(world_to_z(c.z - hz)), z1 = clampz(world_to_z(c.z + hz));
             for (int z = z0; z <= z1; ++z)
@@ -82,11 +85,45 @@ public:
             if (c == start) break;
         }
         std::reverse(pts.begin(), pts.end());
-        if (!pts.empty()) pts.back() = {b.x, a.y, b.z};
-        return pts;
+        if (pts.empty()) return pts;
+        pts.front() = {a.x, a.y, a.z};
+        pts.back() = {b.x, a.y, b.z};
+        return string_pull(pts);
+    }
+
+    // True if the straight XZ segment a->b crosses no blocked cell (Bresenham).
+    bool line_clear(const glm::vec3& a, const glm::vec3& b) const {
+        int x0 = clampx(world_to_x(a.x)), z0 = clampz(world_to_z(a.z));
+        int x1 = clampx(world_to_x(b.x)), z1 = clampz(world_to_z(b.z));
+        int dx = std::abs(x1 - x0), dz = std::abs(z1 - z0);
+        int sx = x0 < x1 ? 1 : -1, sz = z0 < z1 ? 1 : -1;
+        int err = dx - dz;
+        for (;;) {
+            if (blocked_[idx(x0, z0)]) return false;
+            if (x0 == x1 && z0 == z1) return true;
+            int e2 = 2 * err;
+            if (e2 > -dz) { err -= dz; x0 += sx; }
+            if (e2 < dx) { err += dx; z0 += sz; }
+        }
     }
 
 private:
+    // Line-of-sight shortcutting: drop a waypoint whenever the last kept point
+    // still has a clear straight shot to the one after it.
+    std::vector<glm::vec3> string_pull(const std::vector<glm::vec3>& in) const {
+        if (in.size() <= 2) return in;
+        std::vector<glm::vec3> out{in.front()};
+        size_t anchor = 0;
+        for (size_t i = 2; i < in.size(); ++i) {
+            if (!line_clear(in[anchor], in[i])) {
+                out.push_back(in[i - 1]);
+                anchor = i - 1;
+            }
+        }
+        out.push_back(in.back());
+        return out;
+    }
+
     int w_ = 0, d_ = 0;
     float cell_ = 1.0f;
     glm::vec3 min_{0}, max_{0};
