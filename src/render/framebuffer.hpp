@@ -38,4 +38,8 @@ private:
     void destroy();
 };
 
+// Grab the current default framebuffer (the on-screen window, fully composited)
+// and write it to a PNG. For editor/UI screenshots. Returns success.
+bool save_window_png(const std::string& path, int w, int h);
+
 } // namespace eng

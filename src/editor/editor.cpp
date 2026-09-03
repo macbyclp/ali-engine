@@ -1,4 +1,5 @@
 #include "editor/editor.hpp"
+#include "editor/glass.hpp"
 #include "editor/theme.hpp"
 #include "core/log.hpp"
 
@@ -13,6 +14,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 
 using nlohmann::json;
 
@@ -24,10 +27,16 @@ Editor::Editor(GLFWwindow* window) : window_(window) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.IniFilename = nullptr;   // we build our own layout every run
-    apply_unreal_theme();
+    apply_liquid_glass_theme();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 450");
     bp_ = std::make_unique<BlueprintEditor>();
+    glass_ = std::make_unique<GlassLayer>();
+}
+
+void Editor::background(unsigned scene_tex, int w, int h) {
+    win_w_ = w; win_h_ = h;
+    blur_tex_ = glass_->frame(scene_tex, w, h);
 }
 
 Editor::~Editor() {
@@ -97,17 +106,19 @@ void Editor::build_layout() {
     ImGui::DockBuilderAddNode(root, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(root, ImGui::GetMainViewport()->WorkSize);
 
+    // Centre stays empty -- the 3D scene shows through it. Panels hug the edges
+    // as floating glass cards over the scene.
     ImGuiID left, center, right, bottom, ltop, lbottom, banim, btimeline;
-    ImGui::DockBuilderSplitNode(root, ImGuiDir_Left, 0.19f, &left, &center);
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, &right, &center);
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, &bottom, &center);
+    ImGui::DockBuilderSplitNode(root, ImGuiDir_Left, 0.17f, &left, &center);
+    ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, &right, &center);
+    ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, &bottom, &center);
     ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.55f, &ltop, &lbottom);
-    ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Left, 0.28f, &banim, &btimeline);
+    ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Left, 0.30f, &banim, &btimeline);
 
     ImGui::DockBuilderDockWindow("Palette", ltop);
     ImGui::DockBuilderDockWindow("Hierarchy", lbottom);
     ImGui::DockBuilderDockWindow("Details", right);
-    ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderDockWindow("Blueprint", center);
     ImGui::DockBuilderDockWindow("Animations", banim);
     ImGui::DockBuilderDockWindow("Timeline", btimeline);
     ImGui::DockBuilderDockWindow("Output Log", btimeline);
@@ -340,47 +351,35 @@ void Editor::panel_details(CommandContext& ctx) {
     ImGui::End();
 }
 
-void Editor::panel_viewport(CommandContext& ctx, unsigned tex) {
-    if (mode_ == 1) {   // Graph mode: Blueprint node editor fills the centre
-        ImGui::Begin("Viewport");
+void Editor::panel_viewport(CommandContext& ctx, unsigned) {
+    // The scene is the full-window backdrop. In Graph mode a Blueprint window
+    // takes the centre; otherwise we host a gizmo + camera overlay over the scene.
+    if (mode_ == 1) {
+        ImGui::Begin("Blueprint");
         bp_->draw(ctx, selected_);
         ImGui::End();
         return;
     }
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Viewport");
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    vp_w_ = std::max(16, (int)avail.x);
-    vp_h_ = std::max(16, (int)avail.y);
-    ImVec2 pos = ImGui::GetCursorScreenPos();
-    ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
-    bool hovered = ImGui::IsItemHovered();
+    vp_w_ = win_w_;
+    vp_h_ = win_h_;
 
-    // ruler overlay (like UMG's canvas)
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImU32 tick = IM_COL32(120, 120, 125, 90);
-    for (float x = 0; x < avail.x; x += 100) {
-        dl->AddLine({pos.x + x, pos.y}, {pos.x + x, pos.y + 6}, tick);
-        char b[16]; std::snprintf(b, sizeof(b), "%d", (int)x);
-        dl->AddText({pos.x + x + 2, pos.y + 2}, tick, b);
-    }
-    for (float y = 0; y < avail.y; y += 100) {
-        dl->AddLine({pos.x, pos.y + y}, {pos.x + 6, pos.y + y}, tick);
-    }
-    dl->AddText({pos.x + 8, pos.y + avail.y - 18}, IM_COL32(150, 150, 150, 120),
+    ImGuiIO& io = ImGui::GetIO();
+    bool over_scene = !io.WantCaptureMouse;
+    if (over_scene) update_orbit_camera(ctx);
+
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    fg->AddText(ImVec2(16, win_h_ - 40.0f), IM_COL32(255, 255, 255, 110),
                 play_ ? "PLAYING" : "EDIT");
-
-    if (hovered) update_orbit_camera(ctx);
 
     entt::entity e = ctx.scene.find(selected_);
     auto* t = e != entt::null ? ctx.scene.registry.try_get<Transform>(e) : nullptr;
     if (t) {
         ImGuizmo::SetOrthographic(false);
-        ImGuizmo::SetDrawlist();
-        ImGuizmo::SetRect(pos.x, pos.y, avail.x, avail.y);
+        ImGuizmo::SetDrawlist(fg);
+        ImGuizmo::SetRect(0, 0, (float)win_w_, (float)win_h_);
         auto& cam = ctx.scene.camera();
         glm::mat4 view = cam.view();
-        glm::mat4 proj = cam.proj(avail.y > 0 ? avail.x / avail.y : 1.0f);
+        glm::mat4 proj = cam.proj(win_h_ ? float(win_w_) / win_h_ : 1.0f);
         glm::mat4 model = t->matrix();
         if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
                                  (ImGuizmo::OPERATION)gizmo_op_, (ImGuizmo::MODE)gizmo_mode_,
@@ -390,8 +389,6 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned tex) {
             t->position = tr; t->euler_deg = rot; t->scale = sc;
         }
     }
-    ImGui::End();
-    ImGui::PopStyleVar();
 }
 
 void Editor::panel_animations(CommandContext& ctx) {
@@ -498,6 +495,36 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     panel_animations(ctx);
     panel_timeline(ctx);
     panel_output(ctx);
+
+    // ---- liquid-glass: a frosted card behind every panel + the chrome bars ----
+    if (blur_tex_) {
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        // top menu strip + toolbar as one bar
+        draw_glass_card(bg, blur_tex_, win_w_, win_h_, 0, 0, (float)win_w_,
+                        vp->WorkPos.y + 34.0f, 0.0f);
+        // status bar
+        draw_glass_card(bg, blur_tex_, win_w_, win_h_, 0, (float)win_h_ - 26.0f,
+                        (float)win_w_, (float)win_h_, 0.0f);
+
+        // Only the docked tool panels get a card. (ImGuizmo spawns a full-window
+        // "gizmo" window; the dock hosts are ##-prefixed -- neither is a panel.)
+        static const char* kPanels[] = {"Palette", "Hierarchy", "Details", "Blueprint",
+                                        "Animations", "Timeline", "Output Log"};
+        for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+            if (w->Hidden || !w->WasActive) continue;
+            bool is_panel = false;
+            for (const char* p : kPanels)
+                if (std::strcmp(w->Name, p) == 0) { is_panel = true; break; }
+            if (!is_panel) continue;
+            // a docked panel sharing a node with tab siblings: skip the inactive tabs
+            if (w->DockIsActive && w->DockTabIsVisible == false) continue;
+            float in = 5.0f;   // inset so each panel reads as a floating card
+            draw_glass_card(bg, blur_tex_, win_w_, win_h_,
+                            w->Pos.x + in, w->Pos.y + in,
+                            w->Pos.x + w->Size.x - in, w->Pos.y + w->Size.y - in,
+                            14.0f);
+        }
+    }
 }
 
 } // namespace eng

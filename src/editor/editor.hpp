@@ -1,6 +1,7 @@
 #pragma once
 #include "aicontrol/commands.hpp"
 #include "editor/blueprint.hpp"
+#include "editor/glass.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -9,16 +10,20 @@ struct GLFWwindow;
 
 namespace eng {
 
-// Dear ImGui editor, laid out and themed after Unreal's UMG editor. Human-facing:
-// palette / hierarchy / details / viewport / animations / timeline / output log,
-// plus a command console that runs the same JSON commands the AI uses. The scene
-// JSON stays the single source of truth.
+// Dear ImGui editor. Layout after Unreal's UMG editor; visual language is Apple
+// liquid-glass -- the 3D scene is the full-window backdrop, panels are frosted
+// glass cards floating over it. Human-facing (palette / hierarchy / details /
+// viewport / animations / timeline / output log) plus a command console that
+// runs the same JSON commands the AI uses. The scene JSON stays the source of truth.
 class Editor {
 public:
     explicit Editor(GLFWwindow* window);
     ~Editor();
 
     void begin_frame();
+    // Blit the scene to the window and build the frosted backdrop. Call after
+    // rendering the scene to `scene_tex` (full window size), before draw().
+    void background(unsigned scene_tex, int w, int h);
     void draw(CommandContext& ctx, unsigned scene_tex, int tex_w, int tex_h);
     void end_frame();
 
@@ -41,6 +46,9 @@ private:
     int gizmo_mode_ = 1;
 
     std::unique_ptr<BlueprintEditor> bp_;
+    std::unique_ptr<GlassLayer> glass_;
+    unsigned blur_tex_ = 0;
+    int win_w_ = 1280, win_h_ = 720;
     std::vector<std::string> console_log_;
     char console_buf_[512] = {0};
     char save_path_[512] = "scenes/edited.json";
