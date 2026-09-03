@@ -7,6 +7,8 @@
 #include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace eng {
 
@@ -81,6 +83,42 @@ struct AnimationPlayer {
     float fade_dur = 0.0f;
 
     std::vector<glm::mat4> joint_matrices;
+};
+
+// ---- animation state machine (drives AnimationPlayer.clip with cross-fades) ----
+// One named state = one clip. A transition fires when every condition holds; the
+// first match wins. Parameters are floats (bools are 0/1); a trigger is a param
+// that a firing transition resets to 0.
+struct AnimState {
+    std::string name;
+    std::string clip;
+    float speed = 1.0f;
+    bool loop = true;
+};
+struct AnimCondition {
+    std::string param;
+    std::string op = ">";   // > < >= <= == != , or "trigger"
+    float value = 0.0f;
+};
+struct AnimTransition {
+    std::string from;        // "" or "*" = from any state
+    std::string to;
+    std::vector<AnimCondition> when;
+    float blend = 0.15f;
+    float exit_time = 0.0f;  // >0: also require normalized clip time >= this
+};
+struct AnimatorController {
+    std::vector<AnimState> states;
+    std::vector<AnimTransition> transitions;
+    std::string entry;                             // default state name
+    std::string current;                           // runtime: active state
+    std::unordered_map<std::string, float> params;
+    bool started = false;
+
+    const AnimState* state(const std::string& n) const {
+        for (auto& s : states) if (s.name == n) return &s;
+        return nullptr;
+    }
 };
 
 struct DirectionalLight {

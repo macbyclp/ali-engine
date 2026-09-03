@@ -1,6 +1,7 @@
 #include "aicontrol/channel.hpp"
 #include "aicontrol/commands.hpp"
 #include "anim/animation_system.hpp"
+#include "anim/animator.hpp"
 #include "audio/audio.hpp"
 #include "behavior/behavior_system.hpp"
 #include "fx/particles.hpp"
@@ -118,6 +119,7 @@ int main(int argc, char** argv) {
         if (editor) editor->begin_frame();
 
         bool sim = editor ? editor->wants_play() : ctx.sim_running;
+        eng::update_animators(scene, dt);
         eng::update_animations(scene, dt);
         eng::update_particles(scene, dt);
         {

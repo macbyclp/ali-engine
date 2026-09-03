@@ -47,6 +47,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `animation.play` | `{name, clip?, speed?, loop?, restart?, fade?}` | — (`fade` sn → önceki klipten crossfade) |
 | `animation.pause` / `animation.stop` | `{name}` | — |
 | `animation.list` | `{name}` | `{clips:[...]}` |
+| `animator.set` | `{name, entry?, states:[{name, clip?, speed?, loop?}], transitions:[{from?, to, blend?, exit_time?, when:[{param, op, value}]}], params?}` | `{states}` |
+| `animator.param` | `{name, param, value}` veya `{name, params:{...}}` | — |
+| `animator.get` | `{name}` | `{current, entry, params, ...}` |
 | `character.create` | `{name, position?, radius?, height?, move_speed?, jump_speed?, base_color?}` | — |
 | `character.move` | `{name, direction:[x,y,z], speed?}` | — |
 | `character.jump` | `{name}` | — |
@@ -107,6 +110,14 @@ glTF yüklenince dosyanın materyali otomatik gelir; verdiğin alanlar üzerine 
 `entity.spawn {primitive: "skinned", gltf_path: "<.glb|.gltf>" veya "builtin:bendbar",
 animation: {clip, speed?, loop?}}`. glTF skin + klipleri otomatik yüklenir. Sonra
 `animation.play/pause/stop`, `animation.list` ile klip adları.
+
+**Animasyon durum makinesi.** `animator.set` ile durum/geçiş grafiği tanımlanır:
+her durum bir klip, her geçiş `when` koşulları sağlanınca tetiklenir (ilk eşleşen
+kazanır) ve `blend` saniyede crossfade yapar. `from` boş/`"*"` = her durumdan.
+`op`: `> < >= <= == !=` veya `trigger` (tetikleyen geçiş param'ı 0'a çeker).
+`exit_time` (0–1): geçiş için klibin o orana ulaşması da gerekir. Parametreleri
+`animator.param` veya davranış aksiyonu `animParam {target?, param, value}` ayarlar.
+Grafik + parametreler sahne JSON'una `animator` bloğu olarak serialize edilir.
 
 ### UI (`kind`)
 `panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),

@@ -135,6 +135,17 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState
                                  ? gs.values[k].get<double>() : 0.0;
                 gs.values[k] = cur + a.value("value", 1.0);
             }
+        } else if (act == "animParam") {
+            auto e = scene.find(a.value("target", self_name));
+            if (e != entt::null) {
+                if (auto* ac = scene.registry.try_get<AnimatorController>(e)) {
+                    std::string key = a.value("param", std::string());
+                    const json& v = a.contains("value") ? a["value"] : json(1.0);
+                    if (!key.empty())
+                        ac->params[key] = v.is_boolean() ? (v.get<bool>() ? 1.f : 0.f)
+                                        : v.is_number() ? (float)v.get<double>() : 0.f;
+                }
+            }
         } else if (act == "timer") {
             gs.timers.push_back({a.value("after", 1.0f), a.value("event", std::string())});
         } else if (act == "setUI") {
