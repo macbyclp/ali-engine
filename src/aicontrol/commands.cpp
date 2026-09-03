@@ -339,13 +339,20 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             bool spatial = p.value("spatial", p.contains("position"));
             glm::vec3 pos = v3(p.value("position", json()), glm::vec3(0));
             uint32_t h = ctx.audio.play(file, p.value("volume", 1.0f),
-                                        p.value("loop", false), spatial, pos);
+                                        p.value("loop", false), spatial, pos,
+                                        p.value("bus", std::string()));
             if (!h) return fail(id, ctx.audio.ok() ? "load failed" : "no audio device");
             return ok(id, {{"handle", h}});
         }
         if (method == "audio.stop") {
-            ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
+            if (p.contains("bus")) ctx.audio.stop_bus(p["bus"].get<std::string>());
+            else ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
             return ok(id);
+        }
+        if (method == "audio.bus") {
+            std::string bus = p.value("bus", std::string("master"));
+            if (p.contains("volume")) ctx.audio.set_bus_volume(bus, p["volume"].get<float>());
+            return ok(id, {{"bus", bus}, {"volume", ctx.audio.bus_volume(bus)}});
         }
         if (method == "checkpoint.save") {
             std::string name = p.value("name", std::string("default"));

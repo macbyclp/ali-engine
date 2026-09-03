@@ -59,8 +59,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `nav.path` | `{from, to}` | `{waypoints:[...]}` |
 | `particles.emit` | `{name, position?, rate?, lifetime?, velocity?, velocity_spread?, gravity?, start_color?, end_color?, start_size?, end_size?}` | — |
 | `particles.stop` | `{name}` | — |
-| `audio.play` | `{file, volume?, loop?, spatial?, position?}` | `{handle}` |
-| `audio.stop` | `{handle}` | — |
+| `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?}` | `{handle}` |
+| `audio.stop` | `{handle}` veya `{bus}` (bus'taki tüm sesler) | — |
+| `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
 | `ui.add` / `ui.set` | `{name, kind?, anchor?, pos?, size?, color?, fill_color?, text?, text_size?, text_color?, value?, visible?, order?}` | `{name}` |
 | `ui.remove` | `{name}` | — |
 | `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
