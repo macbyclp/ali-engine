@@ -2,6 +2,7 @@
 #include "anim/animation.hpp"
 #include "anim/animator.hpp"
 #include "assets/gltf.hpp"
+#include "geo/procedural.hpp"
 #include "assets/texture.hpp"
 #include "core/log.hpp"
 #include <algorithm>
@@ -106,6 +107,7 @@ entt::entity Scene::load_entity(const json& je) {
             MeshRenderer mr;
             mr.primitive = jm.value("primitive", std::string("cube"));
             mr.gltf_path = jm.value("gltf_path", std::string());
+            if (jm.contains("build")) mr.build = jm["build"];
             mr.base_color = v3(jm.value("base_color", json()), mr.base_color);
             mr.metallic = jm.value("metallic", mr.metallic);
             mr.roughness = jm.value("roughness", mr.roughness);
@@ -250,6 +252,7 @@ json Scene::to_json() const {
             };
             auto& jm = je["mesh"];
             if (!mr->gltf_path.empty()) jm["gltf_path"] = mr->gltf_path;
+            if (mr->build.is_array() && !mr->build.empty()) jm["build"] = mr->build;
             if (glm::dot(mr->emissive, mr->emissive) > 0.0f) jm["emissive"] = v3(mr->emissive);
             if (mr->uv_scale != glm::vec2(1.0f))
                 jm["uv_scale"] = json::array({mr->uv_scale.x, mr->uv_scale.y});
@@ -433,6 +436,13 @@ void Scene::resolve_gpu_meshes() {
     for (auto [e, mr] : registry.view<MeshRenderer>().each()) {
         std::string key = mr.primitive;
         if (mr.primitive == "gltf") key = "gltf:" + mr.gltf_path;
+
+        if (mr.primitive == "procedural") {
+            MeshData d = build_procedural(mr.build);
+            if (d.idx.empty()) d = make_box(glm::vec3(1));
+            mr.gpu = d.upload();
+            continue;
+        }
 
         if (mr.primitive == "skinned") {
             static std::unordered_map<std::string, std::shared_ptr<SkinnedModel>> skin_cache;

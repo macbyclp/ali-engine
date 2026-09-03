@@ -91,6 +91,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             MeshRenderer mr;
             mr.primitive = p.value("primitive", std::string("cube"));
             mr.gltf_path = p.value("gltf_path", std::string());
+            if (p.contains("build")) { mr.primitive = "procedural"; mr.build = p["build"]; }
             apply_material(mr, p);
             scene.registry.emplace<MeshRenderer>(e, mr);
             scene.resolve_gpu_meshes();
@@ -123,6 +124,18 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 ctx.physics.sync(scene);
             }
             return ok(id, {{"name", name}});
+        }
+        if (method == "mesh.build") {
+            auto e = scene.find(p.at("name").get<std::string>());
+            if (e == entt::null) return fail(id, "no such entity");
+            if (!p.contains("build") || !p["build"].is_array())
+                return fail(id, "mesh.build needs a 'build' array");
+            auto& mr = scene.registry.get_or_emplace<MeshRenderer>(e);
+            mr.primitive = "procedural";
+            mr.build = p["build"];
+            scene.resolve_gpu_meshes();
+            int tris = mr.gpu ? mr.gpu->index_count() / 3 : 0;
+            return ok(id, {{"triangles", tris}});
         }
         if (method == "entity.setParent") {
             auto e = scene.find(p.at("name").get<std::string>());
