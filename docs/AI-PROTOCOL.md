@@ -155,6 +155,13 @@ ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (
 `ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
 
+**HDRI ortam ışığı (IBL).** `hdri` = bir equirectangular `.hdr` dosyası yolu
+(`assets/hdri/` içinde iki CC0 örnek var: `puresky_1k.hdr`, `studio_1k.hdr`).
+Gökyüzü o HDR olur; metalik/pürüzsüz yüzeyler ortamı yansıtır; ambient ışık
+HDR'nin bulanık mip'inden gelir (yaklaşık — gerçek prefiltered IBL değil).
+`hdri_intensity` (varsayılan 1.0 — parlak dış mekan HDR'lerinde 0.4–0.6 iyi),
+`hdri_rotation` (derece). `hdri: ""` → prosedürel gökyüzüne döner.
+
 ### Tetik hacimleri (trigger volume)
 `body: {"type":"kinematic","sensor":true}` — çarpışmayı raporlar ama hiçbir şeyi
 itmez. Davranış tetikleri: `{"on":"enter","with":"..."}` (üst üste binme başlangıcı)

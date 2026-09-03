@@ -11,3 +11,4 @@ compile_commands.json
 prefabs/
 imgui.ini
 dist/
+/.claude/worktrees/

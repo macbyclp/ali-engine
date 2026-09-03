@@ -1,10 +1,12 @@
 #pragma once
 #include "core/jobs.hpp"
+#include "render/envmap.hpp"
 #include "render/framebuffer.hpp"
 #include "render/shader.hpp"
 #include "scene/scene.hpp"
 #include "ui/font.hpp"
 #include <memory>
+#include <string>
 
 namespace eng {
 
@@ -38,6 +40,8 @@ private:
     int csm_size_ = 2048;
     unsigned spot_fbo_ = 0, spot_atlas_ = 0;
     int spot_atlas_size_ = 2048;
+
+    EnvMap env_;   // equirect HDR IBL, source path from scene.env["hdri"]
 
     // SSAO: full-res depth prepass -> half-res AO -> blur
     unsigned depth_fbo_ = 0, depth_tex_ = 0;
