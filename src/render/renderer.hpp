@@ -30,10 +30,19 @@ private:
     static constexpr int kCascades = 3;
 
     Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
+    Shader ssao_, ssao_blur_;
     Shader ui_solid_, ui_text_;
     std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
     unsigned csm_fbo_ = 0, csm_tex_ = 0;
     int csm_size_ = 2048;
+
+    // SSAO: full-res depth prepass -> half-res AO -> blur
+    unsigned depth_fbo_ = 0, depth_tex_ = 0;
+    unsigned ao_fbo_ = 0, ao_tex_ = 0, ao_blur_fbo_ = 0, ao_blur_tex_ = 0;
+    unsigned ao_noise_ = 0;
+    int ao_w_ = 0, ao_h_ = 0, depth_w_ = 0, depth_h_ = 0;
+    glm::vec3 ao_kernel_[24];
+    void ensure_ssao(int w, int h);
     std::unique_ptr<Font> font_;
     unsigned empty_vao_ = 0;
     unsigned draw_vao_ = 0;

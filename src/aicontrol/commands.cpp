@@ -349,6 +349,11 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             else ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
             return ok(id);
         }
+        if (method == "render.set") {
+            if (p.is_object()) for (auto& [k, v] : p.items()) scene.env[k] = v;
+            return ok(id, {{"environment", scene.env}});
+        }
+        if (method == "render.get") return ok(id, {{"environment", scene.env}});
         if (method == "audio.bus") {
             std::string bus = p.value("bus", std::string("master"));
             if (p.contains("volume")) ctx.audio.set_bus_volume(bus, p["volume"].get<float>());
