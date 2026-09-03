@@ -18,6 +18,15 @@ public:
     void impulse(const std::string& name, Scene& scene, const glm::vec3& j);
     void set_velocity(const std::string& name, Scene& scene, const glm::vec3& v);
 
+    // Reconcile Joint components with Jolt constraints (call after sync()).
+    void sync_joints(Scene& scene);
+
+    // Body handle -> entity (entt::null if unknown). For query result mapping.
+    entt::entity entity_for_body(uint32_t handle) const {
+        auto it = handle_to_entity_.find(handle);
+        return it == handle_to_entity_.end() ? entt::null : it->second;
+    }
+
     // Character controllers: create bodies, integrate movement, write transforms.
     void sync_characters(Scene& scene);
     void step_characters(Scene& scene, float dt);
@@ -36,6 +45,7 @@ private:
     PhysicsWorld world_;
     std::unordered_map<uint32_t, entt::entity> handle_to_entity_;
     std::unordered_set<uint32_t> character_handles_;
+    std::unordered_set<uint32_t> joint_handles_;
 };
 
 } // namespace eng

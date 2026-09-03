@@ -90,6 +90,10 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `physics.setGravity` | `{gravity:[x,y,z]}` | — |
 | `physics.getGravity` | — | `{gravity}` |
 | `physics.raycast` | `{origin, direction, max_distance?}` | `{hit, point?, normal?, distance?, entity?}` |
+| `physics.overlapSphere` | `{center, radius}` | `{entities:[isim]}` — broad-phase AABB yaklaşımı |
+| `physics.spherecast` | `{origin, direction, radius, max_distance?}` | `{hit, entity?, point?, normal?, distance?}` — Jolt CastShape |
+| `joint.create` | `{a, b?, type, point?, axis?, min?, max?, length?, stiffness?, damping?}` | `{a, b, type}` — `b` boş = dünyaya sabitle |
+| `joint.remove` | `{a?}` veya `{b?}` (ikisi de yoksa hepsi) | `{removed:N}` |
 | `behavior.set` | `{name, behaviors:[...]}` | — |
 | `behavior.get` | `{name}` | `{rules}` |
 | `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
@@ -187,6 +191,18 @@ dizisi de eklenir (yeniden yüklemede aynen gelir).
 her zaman static'e çevrilir) heightmap'e birebir uyan bir Jolt `HeightFieldShape`
 collider kurulur, böylece cisimler zeminin üstüne oturur. `terrain.sculpt`
 sonrası collider otomatik yeniden üretilir.
+
+### Kısıtlar (`joint` bloğu)
+`joint.create` iki gövde arasında bir Jolt kısıtı kurar (entity `a` üzerinde
+saklanır, `a` bloğuna serialize olur). `b` boşsa dünyaya sabitlenir. `type`:
+- `hinge` — `point` (dünya) ekseninde `axis` etrafında döner (kapı, sarkaç)
+- `distance` — sabit çubuk, uzunluk `[min, max]` arası kısıtlı
+- `spring` — `distance` + yay; `length` dinlenme boyu, `stiffness` Hz, `damping`
+- `fixed` — göreli konum + yönelimi kilitler
+- `point` — `point` noktasında top mafsal, yönelim serbest
+
+Her gövdenin bir `RigidBody`'si olmalı. Gövde a hazır değilse kısıt sonraki
+`world.step`'te kurulur. `joint.remove {a}` / `{b}` ilgili kısıtları siler.
 
 ### Işık (`light` bloğu)
 `entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:

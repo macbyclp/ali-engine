@@ -823,6 +823,70 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     r["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, r);
         }
+        if (method == "joint.create") {
+            std::string a = p.at("a").get<std::string>();
+            auto ea = scene.find(a);
+            if (ea == entt::null) return fail(id, "no such entity: " + a);
+            Joint j;
+            j.a = a;
+            j.b = p.value("b", std::string());
+            if (!j.b.empty() && scene.find(j.b) == entt::null)
+                return fail(id, "no such entity: " + j.b);
+            j.type = p.value("type", std::string("point"));
+            j.point = v3(p.value("point", json()), j.point);
+            j.axis = v3(p.value("axis", json()), j.axis);
+            j.min = p.value("min", j.min);
+            j.max = p.value("max", j.max);
+            j.length = p.value("length", j.length);
+            j.stiffness = p.value("stiffness", j.stiffness);
+            j.damping = p.value("damping", j.damping);
+            scene.registry.emplace_or_replace<Joint>(ea, j);
+            ctx.physics.sync(scene);
+            ctx.physics.sync_joints(scene);
+            auto* jr = scene.registry.try_get<Joint>(ea);
+            if (!jr || !jr->registered)
+                return fail(id, "joint create failed (both bodies need a RigidBody)");
+            return ok(id, {{"a", a}, {"b", j.b}, {"type", j.type}});
+        }
+        if (method == "joint.remove") {
+            std::vector<entt::entity> hit;
+            bool by_a = p.contains("a"), by_b = p.contains("b");
+            for (auto [e, j] : scene.registry.view<Joint>().each()) {
+                if (by_a && j.a == p["a"].get<std::string>()) hit.push_back(e);
+                else if (by_b && j.b == p["b"].get<std::string>()) hit.push_back(e);
+                else if (!by_a && !by_b) hit.push_back(e);
+            }
+            for (auto e : hit) scene.registry.remove<Joint>(e);
+            ctx.physics.sync_joints(scene);
+            return ok(id, {{"removed", (int)hit.size()}});
+        }
+        if (method == "physics.overlapSphere") {
+            glm::vec3 c = v3(p.at("center"), glm::vec3(0));
+            float r = p.value("radius", 1.0f);
+            ctx.physics.sync(scene);
+            json names = json::array();
+            for (uint32_t h : ctx.physics.world().overlap_sphere(c, r)) {
+                auto e = ctx.physics.entity_for_body(h);
+                if (e != entt::null && scene.registry.all_of<Name>(e))
+                    names.push_back(scene.registry.get<Name>(e).value);
+            }
+            return ok(id, {{"entities", names}});
+        }
+        if (method == "physics.spherecast") {
+            glm::vec3 o = v3(p.at("origin"), glm::vec3(0));
+            glm::vec3 d = v3(p.at("direction"), glm::vec3(0, -1, 0));
+            float r = p.value("radius", 0.5f);
+            float maxd = p.value("max_distance", 1000.0f);
+            ctx.physics.sync(scene);
+            RayHit h = ctx.physics.world().sphere_cast(o, d, r, maxd);
+            if (!h.hit) return ok(id, {{"hit", false}});
+            json res = {{"hit", true}, {"point", v3(h.point)}, {"normal", v3(h.normal)},
+                        {"distance", h.distance}};
+            auto e = ctx.physics.entity_for_body(h.body);
+            if (e != entt::null && scene.registry.all_of<Name>(e))
+                res["entity"] = scene.registry.get<Name>(e).value;
+            return ok(id, res);
+        }
         if (method == "observe.entities") {
             update_world_transforms(scene);
             CameraComp& cam = scene.camera();

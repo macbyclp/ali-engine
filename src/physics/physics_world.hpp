@@ -33,6 +33,19 @@ struct BodyDesc {
     float hf_height = 1.0f;
 };
 
+struct JointDesc {
+    std::string type = "point";    // hinge | distance | spring | fixed | point
+    uint32_t body_a = 0;
+    uint32_t body_b = 0;           // 0 = pinned to the world
+    glm::vec3 point{0};
+    glm::vec3 axis{0, 1, 0};
+    float min_dist = 0.0f;
+    float max_dist = 0.0f;
+    float length = -1.0f;          // spring rest length; <0 = current separation
+    float stiffness = 0.0f;        // spring frequency (Hz)
+    float damping = 0.2f;
+};
+
 struct RayHit {
     bool hit = false;
     uint32_t body = 0;
@@ -62,6 +75,16 @@ public:
 
     void step(float dt);
     RayHit raycast(const glm::vec3& origin, const glm::vec3& dir, float max_distance) const;
+
+    // Constraints. Returns a handle (0 = failed); remove_joint frees it.
+    uint32_t create_joint(const JointDesc& desc);
+    void remove_joint(uint32_t handle);
+
+    // Shape queries. overlap_sphere returns body handles whose shape intersects
+    // the sphere; sphere_cast sweeps a sphere and returns the first hit.
+    std::vector<uint32_t> overlap_sphere(const glm::vec3& center, float radius) const;
+    RayHit sphere_cast(const glm::vec3& origin, const glm::vec3& dir, float radius,
+                       float max_distance) const;
 
     // Contact pairs (handle,handle) detected during the most recent step(s).
     std::vector<std::pair<uint32_t, uint32_t>> drain_contacts();
