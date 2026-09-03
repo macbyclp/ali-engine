@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -15,7 +16,18 @@
 namespace eng {
 
 // ---------------- GLSL ----------------
+// skyColor() is the procedural fallback. envColor() samples a loaded equirect
+// HDR (uEnv / uHasEnv / uEnvMaxLod / uEnvRot / uEnvIntensity) at a mip chosen by
+// the caller -- lod 0 for the sky, a high lod for irradiance, roughness*max for
+// prefiltered specular. skyRadiance() picks whichever source is active.
 static const char* kSkyGLSL = R"(
+uniform sampler2D uEnv;
+uniform int   uHasEnv;
+uniform float uEnvMaxLod;
+uniform float uEnvRot;
+uniform float uEnvIntensity;
+const float SKY_PI = 3.14159265359;
+
 vec3 skyColor(vec3 dir, vec3 sunDir) {
     float t = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 horizon = vec3(0.60, 0.66, 0.76);
@@ -29,6 +41,18 @@ vec3 skyColor(vec3 dir, vec3 sunDir) {
     col += vec3(1.0, 0.92, 0.74) * sun * 4.0;
     col += vec3(1.0, 0.78, 0.55) * glow * 0.25;
     return col;
+}
+vec3 envColor(vec3 dir, float lod) {
+    // atan(0,0) is undefined (NaN on some drivers) -- guard the poles where the
+    // longitude is arbitrary anyway.
+    float lon = (abs(dir.x) < 1e-5 && abs(dir.z) < 1e-5) ? 0.0 : atan(dir.z, dir.x);
+    vec2 uv = vec2(lon / (2.0 * SKY_PI) + 0.5 + uEnvRot,
+                   1.0 - acos(clamp(dir.y, -1.0, 1.0)) / SKY_PI);
+    vec3 c = textureLod(uEnv, uv, lod).rgb * uEnvIntensity;
+    return clamp(c, 0.0, 64.0);   // keep a blown HDR sun from poisoning the sum
+}
+vec3 skyRadiance(vec3 dir, vec3 sunDir) {
+    return uHasEnv == 1 ? envColor(dir, 0.0) : skyColor(dir, sunDir);
 }
 )";
 
@@ -86,7 +110,7 @@ out vec4 FragColor;
 void main() {
     vec4 far = uInvViewProj * vec4(vUV * 2.0 - 1.0, 1.0, 1.0);
     vec3 dir = normalize(far.xyz / far.w - uCamPos);
-    FragColor = vec4(skyColor(dir, normalize(uSunDir)), 1.0);
+    FragColor = vec4(skyRadiance(dir, normalize(uSunDir)), 1.0);
 }
 )";
 
@@ -268,11 +292,21 @@ void main() {
         direct += brdf(N, V, Lv, albedo, rough, metallic, F0) * uLightColor[i].rgb * att;
     }
 
-    vec3 skyUp = skyColor(vec3(0,1,0), normalize(uSunDir));
-    vec3 skyDn = skyColor(vec3(0,-1,0), normalize(uSunDir));
-    vec3 irr = mix(skyDn, skyUp, N.y*0.5+0.5);
+    vec3 sd = normalize(uSunDir);
     vec3 R = reflect(-V, N);
-    vec3 pref = mix(skyColor(R, normalize(uSunDir)), irr, rough);
+    vec3 irr, pref;
+    if (uHasEnv == 1) {
+        // diffuse: a blurred mip stands in for the cosine-weighted hemisphere
+        // integral; scale down and clamp so the HDR sun disc doesn't wash it out
+        irr  = min(envColor(N, max(uEnvMaxLod - 1.5, 0.0)), vec3(3.0)) * 0.24;
+        // specular: roughness picks the mip; a lighter clamp keeps highlights
+        pref = min(envColor(R, clamp(rough, 0.0, 1.0) * (uEnvMaxLod - 1.0)), vec3(40.0));
+    } else {
+        vec3 skyUp = skyColor(vec3(0,1,0), sd);
+        vec3 skyDn = skyColor(vec3(0,-1,0), sd);
+        irr = mix(skyDn, skyUp, N.y*0.5+0.5);
+        pref = mix(skyColor(R, sd), irr, rough);
+    }
     vec3 Fr = fresnelRough(NoV, F0, rough);
     vec3 kdA = (1.0-Fr)*(1.0-metallic);
     float ao = ((uHas & 16) != 0) ? texture(uAOMap, vUV).r : 1.0;
@@ -1102,6 +1136,32 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glEnable(GL_DEPTH_TEST);
     }
 
+    // equirect HDR IBL: (re)load when the scene's hdri path changes
+    {
+        std::string hdri = scene.env.value("hdri", std::string());
+        if (!hdri.empty() && hdri != env_.path()) {
+            namespace fs = std::filesystem;
+            std::string resolved = hdri;
+            if (!fs::exists(resolved)) resolved = std::string(ENGINE_ASSET_DIR) + "/" + hdri;
+            env_.load(resolved);
+        } else if (hdri.empty() && !env_.path().empty()) {
+            env_.load("");
+        }
+    }
+    bool has_env = env_.ok();
+    float env_intensity = scene.env.value("hdri_intensity", 1.0f);
+    float env_rot = scene.env.value("hdri_rotation", 0.0f) / 360.0f;
+    // uEnv must always point at a valid 2D texture (a mismatched sampler type on
+    // a bound unit makes the whole draw a GL_INVALID_OPERATION no-op).
+    glBindTextureUnit(8, has_env ? env_.texture() : ao_noise_);
+    auto set_env = [&](Shader& s) {
+        s.set("uEnv", 8);
+        s.set("uHasEnv", has_env ? 1 : 0);
+        s.set("uEnvMaxLod", (float)env_.max_lod());
+        s.set("uEnvRot", env_rot);
+        s.set("uEnvIntensity", env_intensity);
+    };
+
     // pass 2: HDR scene
     hdr_->bind();
     glClearColor(0, 0, 0, 1);
@@ -1111,12 +1171,14 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     sky_.set("uInvViewProj", glm::inverse(view_proj));
     sky_.set("uCamPos", cam.position);
     sky_.set("uSunDir", sun_dir);
+    set_env(sky_);
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
 
     glBindTextureUnit(0, csm_tex_);
     pbr_.use();
+    set_env(pbr_);
     pbr_.set("uSkinned", 0);
     pbr_.set("uViewProj", view_proj);
     pbr_.set("uView", view);
