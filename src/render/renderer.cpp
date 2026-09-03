@@ -93,6 +93,36 @@ void main() {
 )";
 static const char* kShadowFrag = R"(void main() {})";
 
+// Point-light shadow: same instanced vertex path, but the fragment stores the
+// linear distance to the light (0..1 over uFar) so a cube lookup can compare it.
+static const char* kPointShadowVert = R"(
+layout(location=0) in vec3 aPos;
+layout(location=4) in mat4 iModel;
+layout(location=11) in ivec4 aJoints;
+layout(location=12) in vec4 aWeights;
+uniform mat4 uLightVP;
+uniform int uSkinned;
+uniform mat4 uJoints[128];
+out vec3 vWorld;
+void main() {
+    vec3 p = aPos;
+    if (uSkinned == 1) {
+        mat4 sm = aWeights.x * uJoints[aJoints.x] + aWeights.y * uJoints[aJoints.y]
+                + aWeights.z * uJoints[aJoints.z] + aWeights.w * uJoints[aJoints.w];
+        p = (sm * vec4(aPos, 1.0)).xyz;
+    }
+    vec4 w = iModel * vec4(p, 1.0);
+    vWorld = w.xyz;
+    gl_Position = uLightVP * w;
+}
+)";
+static const char* kPointShadowFrag = R"(
+in vec3 vWorld;
+uniform vec3 uLightPos;
+uniform float uFar;
+void main() { gl_FragDepth = clamp(distance(vWorld, uLightPos) / uFar, 0.0, 1.0); }
+)";
+
 static const char* kFsVert = R"(
 out vec2 vUV;
 void main() {
@@ -191,6 +221,13 @@ uniform vec2 uViewport;
 uniform sampler2DShadow uSpotAtlas;
 uniform mat4 uSpotVP[4];
 uniform int uSpotSlot[16];       // atlas tile index per light, -1 = no shadow
+uniform samplerCubeArrayShadow uPointShadow;
+uniform int uPointSlot[16];      // cube-array layer per light, -1 = no shadow
+
+float pointShadow(int slot, vec3 lightToFrag, float distOverFar) {
+    if (slot < 0) return 1.0;
+    return texture(uPointShadow, vec4(lightToFrag, float(slot)), distOverFar - 0.004);
+}
 
 float spotShadow(int slot, vec3 worldPos) {
     if (slot < 0) return 1.0;
@@ -288,6 +325,7 @@ void main() {
         }
         if (att <= 0.0) continue;
         if (uLightColor[i].w > 0.5) att *= spotShadow(uSpotSlot[i], vWorld);
+        else                        att *= pointShadow(uPointSlot[i], vWorld - lp, dist / range);
         if (att <= 0.0) continue;
         direct += brdf(N, V, Lv, albedo, rough, metallic, F0) * uLightColor[i].rgb * att;
     }
@@ -529,6 +567,7 @@ Renderer::Renderer(int w, int h)
            (std::string(kSkyGLSL) + kPbrFrag).c_str()),
       sky_(kFsVert, (std::string(kSkyGLSL) + kSkyFrag).c_str()),
       shadow_(kShadowVert, kShadowFrag),
+      point_shadow_(kPointShadowVert, kPointShadowFrag),
       ssao_(kFsVert, kSsaoFrag),
       ssao_blur_(kFsVert, kAoBlurFrag),
       tonemap_(kFsVert, kTonemapFrag),
@@ -569,6 +608,22 @@ Renderer::Renderer(int w, int h)
     glNamedFramebufferDrawBuffer(spot_fbo_, GL_NONE);
     glNamedFramebufferReadBuffer(spot_fbo_, GL_NONE);
     glNamedFramebufferTexture(spot_fbo_, GL_DEPTH_ATTACHMENT, spot_atlas_, 0);
+
+    // point-light shadows: a cube-map array (kPointShadows layers x 6 faces) of
+    // linear distance, sampled with a comparison for soft edges
+    glCreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &point_cube_);
+    glTextureStorage3D(point_cube_, 1, GL_DEPTH_COMPONENT32F,
+                       point_shadow_size_, point_shadow_size_, kPointShadows * 6);
+    glTextureParameteri(point_cube_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(point_cube_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(point_cube_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(point_cube_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(point_cube_, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(point_cube_, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTextureParameteri(point_cube_, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glCreateFramebuffers(1, &point_fbo_);
+    glNamedFramebufferDrawBuffer(point_fbo_, GL_NONE);
+    glNamedFramebufferReadBuffer(point_fbo_, GL_NONE);
 
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
@@ -665,6 +720,8 @@ Renderer::~Renderer() {
     if (csm_tex_) glDeleteTextures(1, &csm_tex_);
     if (csm_fbo_) glDeleteFramebuffers(1, &csm_fbo_);
     if (spot_atlas_) glDeleteTextures(1, &spot_atlas_);
+    if (point_cube_) glDeleteTextures(1, &point_cube_);
+    if (point_fbo_) glDeleteFramebuffers(1, &point_fbo_);
     if (spot_fbo_) glDeleteFramebuffers(1, &spot_fbo_);
     for (unsigned t : {depth_tex_, ao_tex_, ao_blur_tex_, ao_noise_}) if (t) glDeleteTextures(1, &t);
     for (unsigned f : {depth_fbo_, ao_fbo_, ao_blur_fbo_}) if (f) glDeleteFramebuffers(1, &f);
@@ -857,8 +914,11 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     struct GpuLight { glm::vec4 pos; glm::vec4 color; glm::vec4 dir; glm::vec2 cone; };
     std::vector<GpuLight> lights;
     std::vector<int> light_slot;                 // spot-shadow atlas slot per light, -1 = none
+    std::vector<int> light_point_slot;           // point-shadow cube layer per light, -1 = none
     glm::mat4 spot_vp[kSpotShadows];
-    int spot_used = 0;
+    glm::vec3 point_pos[kPointShadows];
+    float point_far[kPointShadows];
+    int spot_used = 0, point_used = 0;
     for (auto [e, wt, pl] : scene.registry.view<WorldTransform, PunctualLight>().each()) {
         if (lights.size() >= 16) break;
         GpuLight g;
@@ -869,7 +929,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         g.cone = {std::cos(glm::radians(pl.inner_deg)), std::cos(glm::radians(pl.outer_deg))};
         lights.push_back(g);
 
-        int slot = -1;
+        int slot = -1, pslot = -1;
         if (pl.spot && pl.cast_shadows && spot_used < kSpotShadows) {
             slot = spot_used++;
             glm::vec3 up = std::abs(d.y) > 0.99f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
@@ -877,8 +937,13 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
             glm::mat4 lproj = glm::perspective(fov, 1.0f, 0.05f, std::max(1.0f, pl.range));
             glm::mat4 lview = glm::lookAt(wt.position, wt.position + d, up);
             spot_vp[slot] = lproj * lview;
+        } else if (!pl.spot && pl.cast_shadows && point_used < kPointShadows) {
+            pslot = point_used++;
+            point_pos[pslot] = wt.position;
+            point_far[pslot] = std::max(1.0f, pl.range);
         }
         light_slot.push_back(slot);
+        light_point_slot.push_back(pslot);
     }
 
     struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
@@ -1077,6 +1142,41 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
 
+    // pass 1c: point-light shadows -- 6 cube faces per shadowing point light
+    if (point_used > 0) {
+        static const glm::vec3 kFaceFwd[6] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+        static const glm::vec3 kFaceUp[6]  = {{0,-1,0},{0,-1,0},{0,0,1},{0,0,-1},{0,-1,0},{0,-1,0}};
+        glBindFramebuffer(GL_FRAMEBUFFER, point_fbo_);
+        glViewport(0, 0, point_shadow_size_, point_shadow_size_);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glCullFace(GL_BACK);
+        point_shadow_.use();
+        point_shadow_.set("uSkinned", 0);
+        glBindVertexArray(draw_vao_);
+        for (int s = 0; s < point_used; ++s) {
+            glm::mat4 pproj = glm::perspective(glm::radians(90.0f), 1.0f, 0.05f, point_far[s]);
+            point_shadow_.set("uLightPos", point_pos[s]);
+            point_shadow_.set("uFar", point_far[s]);
+            for (int f = 0; f < 6; ++f) {
+                glNamedFramebufferTextureLayer(point_fbo_, GL_DEPTH_ATTACHMENT, point_cube_, 0, s * 6 + f);
+                glClear(GL_DEPTH_BUFFER_BIT);
+                glm::mat4 pv = pproj * glm::lookAt(point_pos[s], point_pos[s] + kFaceFwd[f], kFaceUp[f]);
+                point_shadow_.set("uLightVP", pv);
+                for (auto& [key, insts] : all_groups) {
+                    if (insts.empty()) continue;
+                    GLintptr at = upload(insts);
+                    glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
+                    glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
+                    glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+                    glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
+                                            nullptr, (GLsizei)insts.size());
+                }
+                draw_skinned(point_shadow_);
+            }
+        }
+    }
+
     // pass 1b: SSAO -- full-res depth prepass, half-res AO, blur
     bool ssao_on = scene.env.value("ssao", true);
     float ssao_radius = scene.env.value("ssao_radius", 0.6f);
@@ -1202,14 +1302,20 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glUniform2fv(glGetUniformLocation(prog, "uLightCone"), (GLsizei)cone.size(), (const float*)cone.data());
     }
     {
-        int slots[16];
-        for (int i = 0; i < 16; ++i) slots[i] = (i < (int)light_slot.size()) ? light_slot[i] : -1;
+        int slots[16], pslots[16];
+        for (int i = 0; i < 16; ++i) {
+            slots[i]  = (i < (int)light_slot.size())       ? light_slot[i]       : -1;
+            pslots[i] = (i < (int)light_point_slot.size()) ? light_point_slot[i] : -1;
+        }
         glUniform1iv(glGetUniformLocation(pbr_.id(), "uSpotSlot"), 16, slots);
+        glUniform1iv(glGetUniformLocation(pbr_.id(), "uPointSlot"), 16, pslots);
         if (spot_used > 0)
             glUniformMatrix4fv(glGetUniformLocation(pbr_.id(), "uSpotVP"), spot_used, GL_FALSE,
                                (const float*)spot_vp);
         glBindTextureUnit(7, spot_atlas_);
         pbr_.set("uSpotAtlas", 7);
+        glBindTextureUnit(9, point_cube_);
+        pbr_.set("uPointShadow", 9);
     }
     pbr_.set("uBaseColorMap", 1);
     pbr_.set("uNormalMap", 2);
