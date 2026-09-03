@@ -4,9 +4,13 @@
 #include "anim/animator.hpp"
 #include "fx/particles.hpp"
 #include "scene/transform_system.hpp"
+#include "render/shader.hpp"
+#include "render/gl.hpp"
 #include "core/log.hpp"
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <glm/glm.hpp>
 
 using nlohmann::json;
@@ -21,8 +25,140 @@ static glm::vec3 v3(const json& j, glm::vec3 fb) {
 }
 static json v3(const glm::vec3& v) { return json::array({v.x, v.y, v.z}); }
 
+// A world-space ray from a camera through a normalized device point.
+struct PickRay { glm::vec3 origin{0}, dir{0, 0, -1}; };
+static PickRay pick_ray(const CameraComp& cam, glm::vec2 ndc, float aspect) {
+    glm::mat4 inv = glm::inverse(cam.proj(aspect) * cam.view());
+    glm::vec4 a = inv * glm::vec4(ndc.x, ndc.y, -1.0f, 1.0f);
+    glm::vec4 b = inv * glm::vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+    glm::vec3 pa = glm::vec3(a) / a.w, pb = glm::vec3(b) / b.w;
+    return {pa, glm::normalize(pb - pa)};
+}
+static bool ray_sphere(glm::vec3 o, glm::vec3 d, glm::vec3 c, float r, float& t) {
+    glm::vec3 m = o - c;
+    float b = glm::dot(m, d);
+    float cc = glm::dot(m, m) - r * r;
+    if (cc > 0.0f && b > 0.0f) return false;
+    float disc = b * b - cc;
+    if (disc < 0.0f) return false;
+    t = -b - std::sqrt(disc);
+    if (t < 0.0f) t = 0.0f;
+    return true;
+}
+// max scale factor baked into a world matrix (for scaling local bounds radii)
+static float max_scale(const glm::mat4& m) {
+    return glm::max(glm::length(glm::vec3(m[0])),
+                    glm::max(glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2]))));
+}
+
 static json ok(const json& id, json result = json::object()) {
     return {{"id", id}, {"ok", true}, {"result", std::move(result)}};
+}
+
+// Resolve a { "path": ... } param to a writable file path, creating parent dirs.
+// Falls back to ./screenshots/<def> when no path is given.
+static std::string resolve_out_path(const json& p, const char* def) {
+    std::string path = p.value("path", std::string());
+    if (path.empty()) {
+        fs::path dir = fs::current_path() / "screenshots";
+        fs::create_directories(dir);
+        return (dir / def).string();
+    }
+    if (fs::path(path).has_parent_path()) {
+        std::error_code ec;
+        fs::create_directories(fs::path(path).parent_path(), ec);
+    }
+    return path;
+}
+
+// Leaked process-lifetime shader (GL context is gone by the time function-local
+// statics would be destroyed, so never free it).
+static eng::Shader& flat_shader() {
+    static eng::Shader* s = new eng::Shader(
+        "layout(location=0) in vec3 aPos;\n"
+        "uniform mat4 uMVP;\n"
+        "void main(){ gl_Position = uMVP * vec4(aPos, 1.0); }\n",
+        "out vec4 F;\n"
+        "uniform vec3 uColor;\n"
+        "void main(){ F = vec4(uColor, 1.0); }\n");
+    return *s;
+}
+static eng::Shader& depth_shader() {
+    static eng::Shader* s = new eng::Shader(
+        "layout(location=0) in vec3 aPos;\n"
+        "uniform mat4 uMVP; uniform mat4 uMV;\n"
+        "out float vViewZ;\n"
+        "void main(){ vViewZ = -(uMV * vec4(aPos, 1.0)).z; gl_Position = uMVP * vec4(aPos, 1.0); }\n",
+        "in float vViewZ; out vec4 F;\n"
+        "uniform float uNear; uniform float uFar;\n"
+        "void main(){ float g = clamp(1.0 - (vViewZ - uNear) / max(uFar - uNear, 1e-3), 0.0, 1.0);\n"
+        "             F = vec4(vec3(g), 1.0); }\n");
+    return *s;
+}
+
+// Axis-aligned world bounds of an entity's mesh / terrain. Returns false when the
+// entity has no drawable extent (bare light / camera).
+static bool world_aabb(entt::registry& reg, entt::entity e, glm::vec3& mn, glm::vec3& mx) {
+    glm::vec3 lmn, lmx;
+    if (auto* tc = reg.try_get<TerrainComp>(e)) {
+        float half = tc->data.size * 0.5f;
+        float top = tc->data.height;
+        for (float v : tc->data.heights) top = glm::max(top, v * tc->data.height);
+        lmn = {-half, 0.0f, -half};
+        lmx = {half, top, half};
+    } else if (auto* mr = reg.try_get<MeshRenderer>(e); mr && mr->gpu) {
+        glm::vec3 he;
+        if (mr->primitive == "cube" || mr->primitive == "sphere") he = glm::vec3(0.5f);
+        else if (mr->primitive == "plane") he = glm::vec3(1.0f, 0.02f, 1.0f);
+        else he = glm::vec3(mr->gpu->bounds_radius());
+        glm::vec3 c = mr->gpu->bounds_center();
+        lmn = c - he;
+        lmx = c + he;
+    } else {
+        return false;
+    }
+    const glm::mat4* w = reg.try_get<WorldTransform>(e)
+                             ? &reg.get<WorldTransform>(e).matrix : nullptr;
+    glm::mat4 m = w ? *w : glm::mat4(1.0f);
+    mn = glm::vec3(1e9f);
+    mx = glm::vec3(-1e9f);
+    for (int i = 0; i < 8; ++i) {
+        glm::vec3 corner{(i & 1) ? lmx.x : lmn.x, (i & 2) ? lmx.y : lmn.y, (i & 4) ? lmx.z : lmn.z};
+        glm::vec3 p = glm::vec3(m * glm::vec4(corner, 1.0f));
+        mn = glm::min(mn, p);
+        mx = glm::max(mx, p);
+    }
+    return true;
+}
+
+// Flat perception pass: clears `ctx.offscreen` (resized to w x h) and draws every
+// visible mesh with `sh`, calling `per(entity, model, view, proj)` before each
+// draw to bind per-entity uniforms. Restores the default framebuffer after.
+static void perception_pass(
+    CommandContext& ctx, Scene& scene, int w, int h, eng::Shader& sh,
+    const std::function<void(entt::entity, const glm::mat4&, const glm::mat4&, const glm::mat4&)>& per) {
+    update_world_transforms(scene);
+    ctx.offscreen.resize(w, h);
+    CameraComp& cam = scene.camera();
+    glm::mat4 view = cam.view();
+    glm::mat4 proj = cam.proj(h ? float(w) / h : 1.0f);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx.offscreen.id());
+    glViewport(0, 0, w, h);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    sh.use();
+    for (auto [e, wt, mr] : scene.registry.view<WorldTransform, MeshRenderer>().each()) {
+        if (!mr.gpu) continue;
+        per(e, wt.matrix, view, proj);
+        mr.gpu->draw();
+    }
+    Framebuffer::bind_default(w, h);
+    glEnable(GL_CULL_FACE);
 }
 static json fail(const json& id, const std::string& msg) {
     return {{"id", id}, {"ok", false}, {"error", msg}};
@@ -57,6 +193,11 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
     const json p = req.value("params", json::object());
     Scene& scene = ctx.scene;
 
+    if (ctx.recording && method != "quit" && method.rfind("record.", 0) != 0) {
+        ctx.record_file << req.dump() << '\n';
+        ctx.record_file.flush();
+    }
+
     try {
         if (method == "ping") return ok(id, {{"pong", true}});
 
@@ -77,6 +218,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
         }
         if (method == "scene.reset") {
             scene.clear();
+            ctx.physics.clear();
             return ok(id);
         }
         if (method == "scene.state") return ok(id, scene.to_json());
@@ -194,6 +336,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             tc->data.sculpt(at.x, at.z, p.value("radius", 5.0f), p.value("strength", 1.0f),
                             p.value("mode", std::string("raise")));
             scene.resolve_gpu_meshes();
+            ctx.physics.rebuild_body(scene, p.at("name").get<std::string>());  // refresh terrain collider
             return ok(id);
         }
         if (method == "terrain.height") {
@@ -686,6 +829,70 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     r["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, r);
         }
+        if (method == "joint.create") {
+            std::string a = p.at("a").get<std::string>();
+            auto ea = scene.find(a);
+            if (ea == entt::null) return fail(id, "no such entity: " + a);
+            Joint j;
+            j.a = a;
+            j.b = p.value("b", std::string());
+            if (!j.b.empty() && scene.find(j.b) == entt::null)
+                return fail(id, "no such entity: " + j.b);
+            j.type = p.value("type", std::string("point"));
+            j.point = v3(p.value("point", json()), j.point);
+            j.axis = v3(p.value("axis", json()), j.axis);
+            j.min = p.value("min", j.min);
+            j.max = p.value("max", j.max);
+            j.length = p.value("length", j.length);
+            j.stiffness = p.value("stiffness", j.stiffness);
+            j.damping = p.value("damping", j.damping);
+            scene.registry.emplace_or_replace<Joint>(ea, j);
+            ctx.physics.sync(scene);
+            ctx.physics.sync_joints(scene);
+            auto* jr = scene.registry.try_get<Joint>(ea);
+            if (!jr || !jr->registered)
+                return fail(id, "joint create failed (both bodies need a RigidBody)");
+            return ok(id, {{"a", a}, {"b", j.b}, {"type", j.type}});
+        }
+        if (method == "joint.remove") {
+            std::vector<entt::entity> hit;
+            bool by_a = p.contains("a"), by_b = p.contains("b");
+            for (auto [e, j] : scene.registry.view<Joint>().each()) {
+                if (by_a && j.a == p["a"].get<std::string>()) hit.push_back(e);
+                else if (by_b && j.b == p["b"].get<std::string>()) hit.push_back(e);
+                else if (!by_a && !by_b) hit.push_back(e);
+            }
+            for (auto e : hit) scene.registry.remove<Joint>(e);
+            ctx.physics.sync_joints(scene);
+            return ok(id, {{"removed", (int)hit.size()}});
+        }
+        if (method == "physics.overlapSphere") {
+            glm::vec3 c = v3(p.at("center"), glm::vec3(0));
+            float r = p.value("radius", 1.0f);
+            ctx.physics.sync(scene);
+            json names = json::array();
+            for (uint32_t h : ctx.physics.world().overlap_sphere(c, r)) {
+                auto e = ctx.physics.entity_for_body(h);
+                if (e != entt::null && scene.registry.all_of<Name>(e))
+                    names.push_back(scene.registry.get<Name>(e).value);
+            }
+            return ok(id, {{"entities", names}});
+        }
+        if (method == "physics.spherecast") {
+            glm::vec3 o = v3(p.at("origin"), glm::vec3(0));
+            glm::vec3 d = v3(p.at("direction"), glm::vec3(0, -1, 0));
+            float r = p.value("radius", 0.5f);
+            float maxd = p.value("max_distance", 1000.0f);
+            ctx.physics.sync(scene);
+            RayHit h = ctx.physics.world().sphere_cast(o, d, r, maxd);
+            if (!h.hit) return ok(id, {{"hit", false}});
+            json res = {{"hit", true}, {"point", v3(h.point)}, {"normal", v3(h.normal)},
+                        {"distance", h.distance}};
+            auto e = ctx.physics.entity_for_body(h.body);
+            if (e != entt::null && scene.registry.all_of<Name>(e))
+                res["entity"] = scene.registry.get<Name>(e).value;
+            return ok(id, res);
+        }
         if (method == "observe.entities") {
             update_world_transforms(scene);
             CameraComp& cam = scene.camera();
@@ -708,6 +915,200 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 arr.push_back(je);
             }
             return ok(id, {{"entities", arr}, {"width", vw}, {"height", vh}});
+        }
+        if (method == "observe.pick") {
+            update_world_transforms(scene);
+            CameraComp& cam = scene.camera();
+            int vw = p.value("width", ctx.offscreen.width());
+            int vh = p.value("height", ctx.offscreen.height());
+            float aspect = vh ? float(vw) / vh : 1.0f;
+            glm::vec2 ndc;
+            if (p.contains("ndc") && p["ndc"].is_array() && p["ndc"].size() == 2) {
+                ndc = {p["ndc"][0].get<float>(), p["ndc"][1].get<float>()};
+            } else if (p.contains("screen") && p["screen"].is_array() && p["screen"].size() == 2) {
+                float sx = p["screen"][0].get<float>(), sy = p["screen"][1].get<float>();
+                ndc = {sx / vw * 2.0f - 1.0f, 1.0f - sy / vh * 2.0f};
+            } else {
+                return fail(id, "observe.pick needs screen:[x,y] or ndc:[x,y]");
+            }
+            float maxd = p.value("max_distance", 1000.0f);
+            PickRay ray = pick_ray(cam, ndc, aspect);
+
+            ctx.physics.sync(scene);
+            RayHit h = ctx.physics.raycast(ray.origin, ray.dir, maxd);
+            bool hit_any = h.hit;
+            float best_t = h.hit ? h.distance : maxd;
+            glm::vec3 best_pt = h.hit ? h.point : ray.origin + ray.dir * maxd;
+            glm::vec3 best_nrm = h.hit ? h.normal : glm::vec3(0, 1, 0);
+            std::string best_name;
+            if (h.hit) {
+                for (auto [e, rb] : scene.registry.view<RigidBody>().each())
+                    if (rb.registered && rb.handle == h.body)
+                        best_name = scene.registry.get<Name>(e).value;
+            }
+            // entities without a body: ray vs world-space bounding sphere
+            for (auto [e, n, wt, mr] : scene.registry.view<Name, WorldTransform, MeshRenderer>().each()) {
+                if (scene.registry.all_of<RigidBody>(e) || !mr.gpu) continue;
+                glm::vec3 c = glm::vec3(wt.matrix * glm::vec4(mr.gpu->bounds_center(), 1.0f));
+                float r = mr.gpu->bounds_radius() * max_scale(wt.matrix);
+                float t;
+                if (ray_sphere(ray.origin, ray.dir, c, r, t) && t < best_t) {
+                    hit_any = true;
+                    best_t = t;
+                    best_name = n.value;
+                    best_pt = ray.origin + ray.dir * t;
+                    best_nrm = glm::length(best_pt - c) > 1e-5f ? glm::normalize(best_pt - c)
+                                                               : glm::vec3(0, 1, 0);
+                }
+            }
+            json r = {{"hit", hit_any}};
+            if (hit_any) {
+                if (!best_name.empty()) r["entity"] = best_name;
+                r["point"] = v3(best_pt);
+                r["normal"] = v3(best_nrm);
+                r["distance"] = best_t;
+            }
+            return ok(id, r);
+        }
+        if (method == "observe.segment") {
+            int w = p.value("width", ctx.offscreen.width());
+            int h = p.value("height", ctx.offscreen.height());
+            json by_index = json::object();   // "1" -> name
+            json by_color = json::object();   // "r,g,b" -> name   (background is "0,0,0")
+            int next = 1;
+            perception_pass(ctx, scene, w, h, flat_shader(),
+                [&](entt::entity e, const glm::mat4& m, const glm::mat4& v, const glm::mat4& pr) {
+                    int idv = next++;
+                    // Knuth multiplicative hash spreads consecutive ids across the
+                    // colour cube so small scenes still look distinct.
+                    uint32_t hb = (uint32_t)idv * 2654435761u;
+                    int r = (hb >> 16) & 0xFF, g = (hb >> 8) & 0xFF, b = hb & 0xFF;
+                    if ((r | g | b) == 0) b = 0x40;   // never collide with the background
+                    std::string nm = scene.registry.all_of<Name>(e)
+                                         ? scene.registry.get<Name>(e).value : std::string();
+                    by_index[std::to_string(idv)] = nm;
+                    by_color[std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b)] = nm;
+                    flat_shader().set("uMVP", pr * v * m);
+                    flat_shader().set("uColor", glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+                });
+            std::string path = resolve_out_path(p, "segment.png");
+            if (!ctx.offscreen.save_png(path)) return fail(id, "segment write failed");
+            return ok(id, {{"colorKey", by_index}, {"colors", by_color},
+                           {"path", path}, {"width", w}, {"height", h}});
+        }
+        if (method == "observe.depth") {
+            int w = p.value("width", ctx.offscreen.width());
+            int h = p.value("height", ctx.offscreen.height());
+            CameraComp& cam = scene.camera();
+            // Auto-fit the greyscale range to the visible geometry unless overridden.
+            update_world_transforms(scene);
+            glm::mat4 vmat = cam.view();
+            float lo = 1e9f, hi = -1e9f;
+            for (auto [e, wt, mr] : scene.registry.view<WorldTransform, MeshRenderer>().each()) {
+                if (!mr.gpu) continue;
+                glm::vec3 c = glm::vec3(wt.matrix * glm::vec4(mr.gpu->bounds_center(), 1.0f));
+                float rad = mr.gpu->bounds_radius() * max_scale(wt.matrix);
+                float vz = -(vmat * glm::vec4(c, 1.0f)).z;
+                lo = glm::min(lo, vz - rad);
+                hi = glm::max(hi, vz + rad);
+            }
+            if (hi <= lo) { lo = cam.near_z; hi = glm::min(cam.far_z, 80.0f); }
+            float near_z = p.value("near", glm::max(lo, cam.near_z));
+            float far_z = p.value("far", hi);
+            perception_pass(ctx, scene, w, h, depth_shader(),
+                [&](entt::entity, const glm::mat4& m, const glm::mat4& v, const glm::mat4& pr) {
+                    depth_shader().set("uMVP", pr * v * m);
+                    depth_shader().set("uMV", v * m);
+                    depth_shader().set("uNear", near_z);
+                    depth_shader().set("uFar", far_z);
+                });
+            std::string path = resolve_out_path(p, "depth.png");
+            if (!ctx.offscreen.save_png(path)) return fail(id, "depth write failed");
+            return ok(id, {{"path", path}, {"width", w}, {"height", h},
+                           {"near", near_z}, {"far", far_z}});
+        }
+        if (method == "observe.describe") {
+            update_world_transforms(scene);
+            CameraComp& cam = scene.camera();
+            int vw = ctx.offscreen.width(), vh = ctx.offscreen.height();
+            glm::mat4 vp = cam.proj(vh ? float(vw) / vh : 1.0f) * cam.view();
+
+            auto kind_of = [&](entt::entity e) -> const char* {
+                if (scene.registry.all_of<CameraComp>(e)) return "camera";
+                if (scene.registry.any_of<DirectionalLight, PunctualLight>(e)) return "light";
+                if (scene.registry.all_of<TerrainComp>(e)) return "terrain";
+                if (scene.registry.all_of<RigidBody>(e)) return "body";
+                if (scene.registry.all_of<MeshRenderer>(e)) return "mesh";
+                return "mesh";
+            };
+
+            struct Box { std::string name; glm::vec3 mn, mx, c; entt::entity e; bool terrain; };
+            std::vector<Box> boxes;
+            json ents = json::array();
+            for (auto [e, n, wt] : scene.registry.view<Name, WorldTransform>().each()) {
+                glm::vec3 mn, mx;
+                bool has = world_aabb(scene.registry, e, mn, mx);
+                glm::vec4 clip = vp * glm::vec4(wt.position, 1.0f);
+                bool on_screen = clip.w > 0.0f && std::abs(clip.x) <= clip.w &&
+                                 std::abs(clip.y) <= clip.w && clip.z >= -clip.w && clip.z <= clip.w;
+                json je = {{"name", n.value}, {"kind", kind_of(e)},
+                           {"position", v3(wt.position)}, {"on_screen", on_screen}};
+                if (has) je["size"] = json::array({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
+                ents.push_back(je);
+                if (has) boxes.push_back({n.value, mn, mx, 0.5f * (mn + mx), e,
+                                          scene.registry.all_of<TerrainComp>(e)});
+            }
+
+            // pairwise relations between entities whose AABBs are close
+            json rels = json::array();
+            auto overlap = [](float amn, float amx, float bmn, float bmx) {
+                return amn <= bmx && bmn <= amx;
+            };
+            auto within_box = [](const Box& a, const Box& b) {
+                return a.mn.x >= b.mn.x - 1e-3f && a.mx.x <= b.mx.x + 1e-3f &&
+                       a.mn.y >= b.mn.y - 1e-3f && a.mx.y <= b.mx.y + 1e-3f &&
+                       a.mn.z >= b.mn.z - 1e-3f && a.mx.z <= b.mx.z + 1e-3f;
+            };
+            for (size_t i = 0; i < boxes.size(); ++i)
+                for (size_t j = i + 1; j < boxes.size(); ++j) {
+                    // orient so `hi` is the upper / `a` the candidate that rests on `b`
+                    const Box& bi = boxes[i];
+                    const Box& bj = boxes[j];
+                    const Box& a = bi.c.y >= bj.c.y ? bi : bj;   // higher one
+                    const Box& b = bi.c.y >= bj.c.y ? bj : bi;
+                    glm::vec3 ext_a = a.mx - a.mn, ext_b = b.mx - b.mn;
+                    float ra = glm::length(ext_a) * 0.5f, rb = glm::length(ext_b) * 0.5f;
+                    float cd = glm::length(a.c - b.c);
+                    if (cd > 1.6f * (ra + rb) + 0.5f) continue;   // not close: skip
+                    bool xz = overlap(a.mn.x, a.mx.x, b.mn.x, b.mx.x) &&
+                              overlap(a.mn.z, a.mx.z, b.mn.z, b.mx.z);
+                    const char* rel = nullptr;
+                    std::string ra_name = a.name, rb_name = b.name;
+                    // a terrain's AABB is a tall slab — compare against its real surface
+                    if (b.terrain) {
+                        auto* tc = scene.registry.try_get<TerrainComp>(b.e);
+                        float surf = tc ? tc->data.sample(a.c.x, a.c.z) : b.mx.y;
+                        if (xz && a.mn.y <= surf + 0.3f && a.mn.y >= surf - 0.5f * ext_a.y - 0.3f)
+                            rel = "on";
+                        else if (xz && a.mn.y > surf) rel = "above";
+                        if (rel) { rels.push_back({{"a", a.name}, {"rel", rel}, {"b", b.name}}); continue; }
+                    }
+                    // a terrain's AABB is a tall slab — never treat it as a container
+                    if (!b.terrain && within_box(a, b)) rel = "inside";
+                    else if (!a.terrain && within_box(b, a)) { rel = "inside"; std::swap(ra_name, rb_name); }
+                    else if (xz && a.c.y > b.c.y && a.mn.y <= b.mx.y + 0.25f &&
+                             a.mn.y >= b.mx.y - 0.5f * ext_a.y) rel = "on";
+                    else if (xz && a.mn.y > b.mx.y + 0.1f) rel = "above";
+                    else if (bi.mx.x < bj.mn.x) { rel = "left_of"; ra_name = bi.name; rb_name = bj.name; }
+                    else if (bj.mx.x < bi.mn.x) { rel = "left_of"; ra_name = bj.name; rb_name = bi.name; }
+                    else if (cd < 1.4f * (ra + rb) &&
+                             glm::max(ra, rb) < 3.0f * glm::min(ra, rb)) rel = "near";
+                    if (rel) rels.push_back({{"a", ra_name}, {"rel", rel}, {"b", rb_name}});
+                }
+
+            return ok(id, {{"camera", {{"position", v3(cam.position)},
+                                       {"forward", v3(glm::normalize(cam.target - cam.position))}}},
+                           {"entities", ents}, {"relations", rels}});
         }
         if (method == "observe.stats") {
             ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),
@@ -739,6 +1140,49 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             Framebuffer::bind_default(w, h);
             if (!saved) return fail(id, "screenshot write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h}});
+        }
+
+        if (method == "record.start") {
+            std::string path = resolve_out_path(p, "record.jsonl");
+            ctx.record_file.close();
+            ctx.record_file.clear();
+            ctx.record_file.open(path, std::ios::out | std::ios::trunc);
+            if (!ctx.record_file) return fail(id, "cannot open: " + path);
+            ctx.recording = true;
+            ctx.record_path = path;
+            return ok(id, {{"path", path}});
+        }
+        if (method == "record.stop") {
+            ctx.recording = false;
+            ctx.record_file.flush();
+            ctx.record_file.close();
+            return ok(id, {{"path", ctx.record_path}});
+        }
+        if (method == "record.play") {
+            std::string path = p.at("path").get<std::string>();
+            std::ifstream f(path);
+            if (!f) return fail(id, "record not found: " + path);
+            bool was_rec = ctx.recording;
+            ctx.recording = false;   // never re-record while replaying
+            // reset the physics world so a replay is reproducible from any state
+            ctx.physics.clear();
+            for (auto [e, rb] : scene.registry.view<RigidBody>().each()) rb.registered = false;
+            for (auto [e, j] : scene.registry.view<Joint>().each()) j.registered = false;
+            for (auto [e, cc] : scene.registry.view<CharacterController>().each()) cc.registered = false;
+            int n = 0, failed = 0;
+            std::string line;
+            while (std::getline(f, line)) {
+                if (line.empty()) continue;
+                json rq;
+                try { rq = json::parse(line); } catch (...) { continue; }
+                std::string m = rq.value("method", std::string());
+                if (m == "quit" || m.rfind("record.", 0) == 0) continue;
+                json rr = dispatch(ctx, rq);
+                if (!rr.value("ok", false)) ++failed;
+                ++n;
+            }
+            ctx.recording = was_rec;
+            return ok(id, {{"played", n}, {"failed", failed}, {"path", path}});
         }
 
         if (method == "plugin.list")

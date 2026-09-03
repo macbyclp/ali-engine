@@ -161,6 +161,27 @@ struct RigidBody {
     bool registered = false;
 };
 
+// A physics constraint between two bodies (entity `a` and entity `b`; empty `b`
+// pins to the world). Lives on entity `a`. handle/registered are runtime-only.
+//   hinge    : swings about `axis` through `point` (world space)
+//   distance : rigid rod, length clamped to [min, max]
+//   spring   : distance + spring; `length` sets the rest length, `stiffness` Hz
+//   fixed    : locks relative position + orientation
+//   point    : ball joint at `point`, orientation free
+struct Joint {
+    std::string a, b;
+    std::string type = "point";
+    glm::vec3 point{0.0f};
+    glm::vec3 axis{0.0f, 1.0f, 0.0f};
+    float min = 0.0f;
+    float max = 0.0f;
+    float length = -1.0f;      // <0 = use current separation
+    float stiffness = 0.0f;    // spring frequency in Hz (0 = rigid)
+    float damping = 0.2f;
+    uint32_t handle = 0;
+    bool registered = false;
+};
+
 // Data-driven behaviour. `rules` is a JSON array of { "on": trigger, "do": [actions] }
 // interpreted by BehaviorSystem each step. Triggers: start | tick | collision | event.
 // Kept as raw JSON so an AI can emit it verbatim.

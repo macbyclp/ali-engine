@@ -159,6 +159,21 @@ entt::entity Scene::load_entity(const json& je) {
         if (je.contains("behavior")) {
             registry.emplace<Behavior>(e, Behavior{je["behavior"], false});
         }
+        if (je.contains("joint")) {
+            const auto& jj = je["joint"];
+            Joint j;
+            j.a = jj.value("a", je.value("name", std::string()));
+            j.b = jj.value("b", std::string());
+            j.type = jj.value("type", j.type);
+            j.point = v3(jj.value("point", json()), j.point);
+            j.axis = v3(jj.value("axis", json()), j.axis);
+            j.min = jj.value("min", j.min);
+            j.max = jj.value("max", j.max);
+            j.length = jj.value("length", j.length);
+            j.stiffness = jj.value("stiffness", j.stiffness);
+            j.damping = jj.value("damping", j.damping);
+            registry.emplace<Joint>(e, j);
+        }
         if (je.contains("particles")) {
             const auto& jp = je["particles"];
             ParticleEmitter em;
@@ -323,6 +338,12 @@ json Scene::to_json() const {
         }
         if (auto* b = registry.try_get<Behavior>(e)) {
             if (b->rules.is_array() && !b->rules.empty()) je["behavior"] = b->rules;
+        }
+        if (auto* j = registry.try_get<Joint>(e)) {
+            je["joint"] = {{"a", j->a}, {"b", j->b}, {"type", j->type},
+                           {"point", v3(j->point)}, {"axis", v3(j->axis)},
+                           {"min", j->min}, {"max", j->max}, {"length", j->length},
+                           {"stiffness", j->stiffness}, {"damping", j->damping}};
         }
         if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
             je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},

@@ -10,14 +10,22 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollidePointResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -132,6 +140,9 @@ struct PhysicsWorld::Impl {
 
     std::unordered_map<uint32_t, JPH::Ref<JPH::CharacterVirtual>> chars;
     uint32_t next_char = 1;
+
+    std::unordered_map<uint32_t, JPH::Ref<JPH::TwoBodyConstraint>> joints;
+    uint32_t next_joint = 1;
 };
 
 static bool g_jolt_inited = false;
@@ -155,9 +166,45 @@ PhysicsWorld::PhysicsWorld() {
 
 PhysicsWorld::~PhysicsWorld() = default;
 
+void PhysicsWorld::reset() {
+    JPH::Vec3 g = p_->system.GetGravity();
+    p_ = std::make_unique<Impl>();     // drop the old world entirely
+    p_->system.Init(65536, 0, 65536, 10240, p_->bp_iface, p_->obj_vs_bp, p_->obj_pair);
+    p_->system.SetContactListener(&p_->contacts);
+    p_->system.SetGravity(g);
+}
+
 uint32_t PhysicsWorld::add_body(const BodyDesc& d) {
     JPH::ShapeRefC shape;
-    if (d.shape == "sphere")
+    if (d.shape == "heightfield" && d.hf_samples && d.hf_count >= 2) {
+        int n = d.hf_count;
+        const float* src = d.hf_samples;
+        // Jolt wants the sample count to be a multiple of the block size (2);
+        // pad an odd grid by one replicated row/column.
+        std::vector<float> padded;
+        int m = n;
+        if (n % 2 != 0) {
+            m = n + 1;
+            padded.resize((size_t)m * m);
+            for (int z = 0; z < m; ++z)
+                for (int x = 0; x < m; ++x)
+                    padded[(size_t)z * m + x] =
+                        src[(size_t)std::min(z, n - 1) * n + std::min(x, n - 1)];
+            src = padded.data();
+        }
+        float spacing = d.hf_size / float(n - 1);
+        JPH::Vec3 offset(-0.5f * d.hf_size, 0.0f, -0.5f * d.hf_size);
+        JPH::Vec3 scale(spacing, glm::max(d.hf_height, 1e-4f), spacing);
+        JPH::HeightFieldShapeSettings hs(src, offset, scale, (JPH::uint32)m);
+        auto res = hs.Create();
+        if (res.IsValid()) {
+            shape = res.Get();
+        } else {
+            eng::log::error("heightfield shape: %s", res.GetError().c_str());
+            shape = new JPH::BoxShape(JPH::Vec3(0.5f * d.hf_size, 0.1f, 0.5f * d.hf_size));
+        }
+    }
+    else if (d.shape == "sphere")
         shape = new JPH::SphereShape(d.radius);
     else
         shape = new JPH::BoxShape(to_j(glm::max(d.half_extents, glm::vec3(0.02f))));
@@ -284,6 +331,114 @@ RayHit PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& dir, floa
     JPH::BodyLockRead lock(p_->system.GetBodyLockInterface(), res.mBodyID);
     if (lock.Succeeded())
         out.normal = to_g(lock.GetBody().GetWorldSpaceSurfaceNormal(res.mSubShapeID2, to_j(out.point)));
+    return out;
+}
+
+static glm::vec3 any_perp(const glm::vec3& v) {
+    glm::vec3 a = std::abs(v.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+    return glm::normalize(glm::cross(v, a));
+}
+
+uint32_t PhysicsWorld::create_joint(const JointDesc& d) {
+    const JPH::BodyLockInterface& bli = p_->system.GetBodyLockInterface();
+    JPH::Body* ba = nullptr;
+    JPH::Body* bb = &JPH::Body::sFixedToWorld;
+    {
+        JPH::BodyLockWrite la(bli, Impl::id(d.body_a));
+        if (la.Succeeded()) ba = &la.GetBody();
+    }
+    if (d.body_b) {
+        JPH::BodyLockWrite lb(bli, Impl::id(d.body_b));
+        if (lb.Succeeded()) bb = &lb.GetBody();
+    }
+    if (!ba) return 0;
+
+    glm::vec3 pa = to_g(ba->GetCenterOfMassPosition());
+    glm::vec3 pb = (bb == &JPH::Body::sFixedToWorld) ? d.point : to_g(bb->GetCenterOfMassPosition());
+
+    JPH::Ref<JPH::TwoBodyConstraintSettings> settings;
+    if (d.type == "hinge") {
+        auto* s = new JPH::HingeConstraintSettings();
+        s->mSpace = JPH::EConstraintSpace::WorldSpace;
+        s->mPoint1 = s->mPoint2 = to_j(d.point);
+        glm::vec3 ax = glm::normalize(d.axis);
+        s->mHingeAxis1 = s->mHingeAxis2 = to_j(ax);
+        s->mNormalAxis1 = s->mNormalAxis2 = to_j(any_perp(ax));
+        settings = s;
+    } else if (d.type == "fixed") {
+        auto* s = new JPH::FixedConstraintSettings();
+        s->mSpace = JPH::EConstraintSpace::WorldSpace;
+        s->mAutoDetectPoint = true;
+        settings = s;
+    } else if (d.type == "point") {
+        auto* s = new JPH::PointConstraintSettings();
+        s->mSpace = JPH::EConstraintSpace::WorldSpace;
+        s->mPoint1 = s->mPoint2 = to_j(d.point);
+        settings = s;
+    } else {   // distance | spring
+        auto* s = new JPH::DistanceConstraintSettings();
+        s->mSpace = JPH::EConstraintSpace::WorldSpace;
+        s->mPoint1 = to_j(pa);
+        s->mPoint2 = to_j(pb);
+        float cur = glm::length(pa - pb);
+        float rest = d.length >= 0.0f ? d.length : cur;
+        if (d.type == "spring") {
+            s->mMinDistance = d.max_dist > d.min_dist ? d.min_dist : rest;
+            s->mMaxDistance = d.max_dist > d.min_dist ? d.max_dist : rest;
+            s->mLimitsSpringSettings.mFrequency = d.stiffness > 0.0f ? d.stiffness : 2.0f;
+            s->mLimitsSpringSettings.mDamping = d.damping;
+        } else {
+            s->mMinDistance = d.max_dist > d.min_dist ? d.min_dist : cur;
+            s->mMaxDistance = d.max_dist > d.min_dist ? d.max_dist : cur;
+        }
+        settings = s;
+    }
+
+    JPH::TwoBodyConstraint* c = settings->Create(*ba, *bb);
+    if (!c) return 0;
+    p_->system.AddConstraint(c);
+    uint32_t h = p_->next_joint++;
+    p_->joints[h] = c;
+    if (d.body_a) p_->bi().ActivateBody(Impl::id(d.body_a));
+    if (d.body_b) p_->bi().ActivateBody(Impl::id(d.body_b));
+    return h;
+}
+
+void PhysicsWorld::remove_joint(uint32_t h) {
+    auto it = p_->joints.find(h);
+    if (it == p_->joints.end()) return;
+    p_->system.RemoveConstraint(it->second);
+    p_->joints.erase(it);
+}
+
+std::vector<uint32_t> PhysicsWorld::overlap_sphere(const glm::vec3& center, float radius) const {
+    // Broad-phase AABB approximation: bodies whose broad-phase box meets the sphere.
+    JPH::AllHitCollisionCollector<JPH::CollideShapeBodyCollector> collector;
+    p_->system.GetBroadPhaseQuery().CollideSphere(to_j(center), radius, collector);
+    std::vector<uint32_t> out;
+    out.reserve(collector.mHits.size());
+    for (const JPH::BodyID& id : collector.mHits)
+        out.push_back(id.GetIndexAndSequenceNumber());
+    return out;
+}
+
+RayHit PhysicsWorld::sphere_cast(const glm::vec3& origin, const glm::vec3& dir,
+                                 float radius, float max_d) const {
+    RayHit out;
+    glm::vec3 nd = glm::normalize(dir);
+    JPH::RefConst<JPH::SphereShape> shape = new JPH::SphereShape(glm::max(radius, 1e-3f));
+    JPH::RShapeCast cast(shape, JPH::Vec3::sReplicate(1.0f),
+                         JPH::RMat44::sTranslation(to_j(origin)), to_j(nd * max_d));
+    JPH::ShapeCastSettings settings;
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    p_->system.GetNarrowPhaseQuery().CastShape(cast, settings, JPH::RVec3::sZero(), collector);
+    if (!collector.HadHit()) return out;
+
+    out.hit = true;
+    out.body = collector.mHit.mBodyID2.GetIndexAndSequenceNumber();
+    out.distance = collector.mHit.mFraction * max_d;
+    out.point = to_g(cast.mCenterOfMassStart.GetTranslation()) + nd * out.distance;
+    out.normal = -glm::normalize(to_g(collector.mHit.mPenetrationAxis));
     return out;
 }
 

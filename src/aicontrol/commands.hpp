@@ -9,6 +9,7 @@
 #include "render/renderer.hpp"
 #include "scene/scene.hpp"
 #include <nlohmann/json.hpp>
+#include <fstream>
 #include <string>
 #include <unordered_map>
 
@@ -31,6 +32,12 @@ struct CommandContext {
     std::unordered_map<std::string, nlohmann::json> checkpoints;
     PluginHost* plugins = nullptr;   // optional; handles unknown methods + per-frame ticks
     InputSystem* input = nullptr;    // optional; named-action input for gameplay
+
+    // Request recording (record.start/stop/play). While `recording`, dispatch()
+    // appends every incoming request line to `record_file`.
+    std::ofstream record_file;
+    std::string record_path;
+    bool recording = false;
 };
 
 // Executes one request on the main thread, returns the response object.
