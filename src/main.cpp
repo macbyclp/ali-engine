@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
     bool start_playing = false;
     int width = 1280, height = 720;
     std::string scene_path;
+    std::string shot_path;      // --shot <png>: grab the window then quit
+    int shot_frame = 45;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -38,6 +40,8 @@ int main(int argc, char** argv) {
         else if (a == "--scene" && i + 1 < argc) scene_path = argv[++i];
         else if (a == "--width" && i + 1 < argc) width = std::stoi(argv[++i]);
         else if (a == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
+        else if (a == "--shot" && i + 1 < argc) shot_path = argv[++i];
+        else if (a == "--shot-frame" && i + 1 < argc) shot_frame = std::stoi(argv[++i]);
     }
 
     if (editor_mode) headless = false;
@@ -56,7 +60,9 @@ int main(int argc, char** argv) {
     eng::AudioEngine audio;
     eng::GameState game;
 
-    eng::ControlChannel channel(!editor_mode);
+    // Only the headless AI-driving mode should quit when stdin closes; a human
+    // running a window (plain or --editor) doesn't pipe commands.
+    eng::ControlChannel channel(headless);
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
 
@@ -78,8 +84,10 @@ int main(int argc, char** argv) {
     last_write = scene_mtime();
 
     double prev_time = glfwGetTime();
+    long frame_no = 0;
     while (!ctx.quit && !window.should_close()) {
         window.poll();
+        ++frame_no;
 
         double now = glfwGetTime();
         float dt = float(now - prev_time);
@@ -125,14 +133,11 @@ int main(int argc, char** argv) {
         }
 
         if (editor) {
-            int vw, vh;
-            editor->wanted_viewport(vw, vh);
-            offscreen.resize(vw, vh);
-            renderer.render(scene, offscreen.id(), vw, vh);
-            eng::Framebuffer::bind_default(window.width(), window.height());
-            glClearColor(0.06f, 0.06f, 0.07f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            editor->draw(ctx, offscreen.color_texture(), vw, vh);
+            int W = window.width(), H = window.height();
+            offscreen.resize(W, H);
+            renderer.render(scene, offscreen.id(), W, H);   // scene at full window size
+            editor->background(offscreen.color_texture(), W, H);   // blit + frosted blur
+            editor->draw(ctx, offscreen.color_texture(), W, H);    // glass panels over it
             editor->end_frame();
             window.swap();
         } else if (!headless) {
@@ -140,6 +145,14 @@ int main(int argc, char** argv) {
             window.swap();
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+
+        if (!shot_path.empty() && frame_no >= shot_frame && !headless) {
+            if (eng::save_window_png(shot_path, window.width(), window.height()))
+                eng::log::info("shot saved: %s", shot_path.c_str());
+            else
+                eng::log::error("shot failed: %s", shot_path.c_str());
+            ctx.quit = true;
         }
     }
 

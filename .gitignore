@@ -1,6 +1,7 @@
 /build/
 /build-*/
 /screenshots/
+/shot*.png
 *.o
 *.obj
 compile_commands.json

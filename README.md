@@ -68,14 +68,17 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 - Screen-space UI — panels, text (stb_truetype), bars, 9 anchors
 
 **Tooling**
-- `--editor` — embedded Dear ImGui editor, laid out after Unreal's UMG editor
+- `--editor` — embedded Dear ImGui editor, laid out after Unreal's UMG editor,
+  in an Apple-style liquid-glass skin: the live 3D scene is the full-window
+  backdrop, panels are frosted-glass cards floating over it
 - ImGuizmo transform gizmos, orbit-camera viewport, live JSON console
+- `--shot <file.png> [--shot-frame N]` — grab the composited window to PNG, then quit
 - **Blueprint visual scripting** — node graph that compiles to behaviour JSON, and
   round-trips *from* it (see below)
 
 <div align="center">
 <img src="media/editor.png" width="820" alt="editor"><br>
-<sub>The <code>--editor</code> view: Palette · Hierarchy · Viewport · Details · Animations · Timeline · Output Log</sub>
+<sub>The <code>--editor</code> view — liquid-glass panels over the live viewport: Palette · Hierarchy · Details · Animations · Timeline · Output Log</sub>
 </div>
 
 | Materials — roughness sweep + normal map | Point + spot lights |
