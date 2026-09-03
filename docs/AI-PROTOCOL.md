@@ -78,6 +78,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `ui.remove` | `{name}` | — |
 | `observe.view` | `{position?, target?, fov_deg?, width?, height?, path?}` | `{path,w,h}` — sahne kamerası bozulmaz |
 | `observe.entities` | — | `{entities:[{name,position,distance,in_view,screen}]}` |
+| `observe.pick` | `{screen:[x,y]}` (piksel) veya `{ndc:[x,y]}`, `width?`, `height?`, `max_distance?` | `{hit, entity?, point, normal, distance}` — kameradan ışın; önce fizik gövdeleri, gövdesiz meshler için sınır-küresi |
 | `state.set` / `state.get` / `state.list` / `state.clear` | `{key?, value?}` | — / `{value}` / tüm state / — |
 | `timer.after` | `{seconds, event}` | — tek seferlik → event |
 | `checkpoint.save` / `checkpoint.restore` | `{name?}` | — (sahne + state anlık görüntüsü) |
