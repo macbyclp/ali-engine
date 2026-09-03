@@ -18,6 +18,7 @@ public:
 
     void impulse(const std::string& name, Scene& scene, const glm::vec3& j);
     void set_velocity(const std::string& name, Scene& scene, const glm::vec3& v);
+    void move(const std::string& name, Scene& scene, const glm::vec3& v, bool keep_y);
 
     // Reconcile Joint components with Jolt constraints (call after sync()).
     void sync_joints(Scene& scene);

@@ -6,6 +6,7 @@
 #include "behavior/behavior_system.hpp"
 #include "fx/particles.hpp"
 #include "game/gamestate.hpp"
+#include "game/camera_rig.hpp"
 #include "input/input.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
@@ -142,6 +143,7 @@ int main(int argc, char** argv) {
         input.update(dt);
         plugins.update(ctx, dt);
         eng::update_animators(scene, dt);
+        if (sim) eng::update_camera_rig(scene, dt);
         eng::update_animations(scene, dt);
         eng::update_particles(scene, dt);
         {

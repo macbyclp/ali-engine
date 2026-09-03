@@ -70,6 +70,7 @@ public:
     void set_transform(uint32_t handle, const glm::vec3& pos, const glm::quat& rot);
     void get_transform(uint32_t handle, glm::vec3& pos, glm::quat& rot) const;
     void set_linear_velocity(uint32_t handle, const glm::vec3& v);
+    glm::vec3 linear_velocity(uint32_t handle) const;
     void add_impulse(uint32_t handle, const glm::vec3& j);
 
     void set_gravity(const glm::vec3& g);

@@ -254,6 +254,10 @@ entt::entity Scene::load_entity(const json& je) {
             c.position = v3(jc.value("position", json()), c.position);
             c.target = v3(jc.value("target", json()), c.target);
             c.fov_deg = jc.value("fov_deg", c.fov_deg);
+            c.follow = jc.value("follow", std::string());
+            c.follow_offset = v3(jc.value("follow_offset", json()), c.follow_offset);
+            c.follow_look = v3(jc.value("follow_look", json()), c.follow_look);
+            c.follow_stiffness = jc.value("follow_stiffness", c.follow_stiffness);
             registry.emplace<CameraComp>(e, c);
         }
         return e;
@@ -392,6 +396,12 @@ json Scene::to_json() const {
                 {"target", v3(c->target)},
                 {"fov_deg", c->fov_deg},
             };
+            if (!c->follow.empty()) {
+                je["camera"]["follow"] = c->follow;
+                je["camera"]["follow_offset"] = v3(c->follow_offset);
+                je["camera"]["follow_look"] = v3(c->follow_look);
+                je["camera"]["follow_stiffness"] = c->follow_stiffness;
+            }
         }
         out["entities"].push_back(je);
     }

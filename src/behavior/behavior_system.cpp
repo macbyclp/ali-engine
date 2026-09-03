@@ -90,6 +90,10 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState
                       a.value("message", std::string()).c_str());
         } else if (act == "setVelocity") {
             physics.set_velocity(self_name, scene, v3(a.value("velocity", json()), glm::vec3(0)));
+        } else if (act == "move") {
+            // horizontal drive that leaves gravity / jump on the Y axis alone
+            physics.move(self_name, scene, v3(a.value("velocity", json()), glm::vec3(0)),
+                         a.value("keep_y", true));
         } else if (act == "impulse") {
             physics.impulse(self_name, scene, v3(a.value("impulse", json()), glm::vec3(0)));
         } else if (act == "spin" && t) {
