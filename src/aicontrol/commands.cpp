@@ -323,7 +323,16 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             apply_material(mr, p);
             if (mr.base_color == glm::vec3(0.8f)) mr.base_color = {0.42f, 0.48f, 0.34f};
             scene.registry.get_or_emplace<Transform>(e);
+            // terrain is walkable by default -- a static heightfield collider
+            if (p.value("body", true)) {
+                auto& rb = scene.registry.get_or_emplace<RigidBody>(e);
+                rb.type = "static";
+                rb.registered = false;
+            } else {
+                scene.registry.remove<RigidBody>(e);
+            }
             scene.resolve_gpu_meshes();
+            ctx.physics.sync(scene);
             return ok(id, {{"name", scene.registry.get<Name>(e).value},
                            {"resolution", scene.registry.get<TerrainComp>(e).data.resolution}});
         }
