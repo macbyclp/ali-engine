@@ -93,8 +93,49 @@ void PhysicsSystem::sync(Scene& scene) {
     }
 }
 
+void PhysicsSystem::sync_joints(Scene& scene) {
+    auto& reg = scene.registry;
+    auto body_of = [&](const std::string& nm) -> uint32_t {
+        auto e = scene.find(nm);
+        if (e == entt::null) return 0;
+        auto* rb = reg.try_get<RigidBody>(e);
+        return (rb && rb->registered) ? rb->handle : 0;
+    };
+
+    for (auto [e, j] : reg.view<Joint>().each()) {
+        if (j.registered) continue;
+        uint32_t ha = body_of(j.a);
+        uint32_t hb = j.b.empty() ? 0 : body_of(j.b);
+        if (!ha) continue;                       // body a not ready yet; retry next sync
+        if (!j.b.empty() && !hb) continue;
+        JointDesc d;
+        d.type = j.type;
+        d.body_a = ha;
+        d.body_b = hb;
+        d.point = j.point;
+        d.axis = j.axis;
+        d.min_dist = j.min;
+        d.max_dist = j.max;
+        d.length = j.length;
+        d.stiffness = j.stiffness;
+        d.damping = j.damping;
+        j.handle = world_.create_joint(d);
+        j.registered = j.handle != 0;
+        if (j.registered) joint_handles_.insert(j.handle);
+    }
+
+    std::unordered_set<uint32_t> alive;
+    for (auto [e, j] : reg.view<Joint>().each())
+        if (j.registered) alive.insert(j.handle);
+    for (auto it = joint_handles_.begin(); it != joint_handles_.end();) {
+        if (!alive.count(*it)) { world_.remove_joint(*it); it = joint_handles_.erase(it); }
+        else ++it;
+    }
+}
+
 void PhysicsSystem::step(Scene& scene, float dt, int substeps) {
     sync(scene);
+    sync_joints(scene);
     substeps = glm::clamp(substeps, 1, 32);
     for (int i = 0; i < substeps; ++i) world_.step(dt / substeps);
 
