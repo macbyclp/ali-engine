@@ -30,9 +30,10 @@ public:
 
 private:
     static constexpr int kCascades = 3;
-    static constexpr int kSpotShadows = 4;   // 2x2 atlas tiles for spot lights
+    static constexpr int kSpotShadows = 4;    // 2x2 atlas tiles for spot lights
+    static constexpr int kPointShadows = 2;   // cube-map-array layers for point lights
 
-    Shader pbr_, sky_, shadow_, tonemap_, bright_, blur_, particle_;
+    Shader pbr_, sky_, shadow_, point_shadow_, tonemap_, bright_, blur_, particle_;
     Shader ssao_, ssao_blur_;
     Shader ui_solid_, ui_text_;
     std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
@@ -40,6 +41,8 @@ private:
     int csm_size_ = 2048;
     unsigned spot_fbo_ = 0, spot_atlas_ = 0;
     int spot_atlas_size_ = 2048;
+    unsigned point_fbo_ = 0, point_cube_ = 0;   // GL_TEXTURE_CUBE_MAP_ARRAY depth
+    int point_shadow_size_ = 1024;
 
     EnvMap env_;   // equirect HDR IBL, source path from scene.env["hdri"]
 

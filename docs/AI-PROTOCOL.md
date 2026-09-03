@@ -189,8 +189,9 @@ dizisi de eklenir (yeniden yüklemede aynen gelir). Fizik çarpışması yok (he
 ### Işık (`light` bloğu)
 `entity.spawn {light:{type, ...}}` veya `light.set/light.add`. `type`:
 `directional` (yön güneşi, 3-cascade CSM gölgeli), `point`, `spot`. Spot alanları:
-`direction`, `inner_deg`, `outer_deg`, `range`, `cast_shadows` (varsayılan açık —
-ilk 4 spot ışık 2x2 gölge atlasına girer). Point ışıklarda gölge yok (henüz).
+`direction`, `inner_deg`, `outer_deg`, `range`, `cast_shadows` (varsayılan açık).
+Gölge: yön ışığı 3-cascade CSM; ilk 4 spot 2x2 atlas; ilk 2 point ışık
+omnidireksiyonel cube-map gölge.
 
 ### UI (`kind`)
 `panel` (renkli kutu + opsiyonel ortalı metin), `text` (sadece metin, pos'tan başlar),
