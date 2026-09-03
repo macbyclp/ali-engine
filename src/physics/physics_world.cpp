@@ -253,6 +253,9 @@ void PhysicsWorld::get_transform(uint32_t h, glm::vec3& pos, glm::quat& rot) con
 void PhysicsWorld::set_linear_velocity(uint32_t h, const glm::vec3& v) {
     p_->bi().SetLinearVelocity(Impl::id(h), to_j(v));
 }
+glm::vec3 PhysicsWorld::linear_velocity(uint32_t h) const {
+    return to_g(p_->bi().GetLinearVelocity(Impl::id(h)));
+}
 void PhysicsWorld::add_impulse(uint32_t h, const glm::vec3& j) {
     p_->bi().AddImpulse(Impl::id(h), to_j(j));
 }

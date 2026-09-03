@@ -3,6 +3,7 @@
 #include "anim/animation_system.hpp"
 #include "anim/animator.hpp"
 #include "fx/particles.hpp"
+#include "game/camera_rig.hpp"
 #include "scene/transform_system.hpp"
 #include "render/shader.hpp"
 #include "render/gl.hpp"
@@ -458,6 +459,14 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             c.fov_deg = p.value("fov_deg", c.fov_deg);
             return ok(id);
         }
+        if (method == "camera.follow") {
+            auto& c = scene.camera();
+            c.follow = p.value("target", p.value("follow", std::string()));  // "" clears
+            c.follow_offset = v3(p.value("offset", json()), c.follow_offset);
+            c.follow_look = v3(p.value("look", json()), c.follow_look);
+            c.follow_stiffness = p.value("stiffness", c.follow_stiffness);
+            return ok(id, {{"follow", c.follow}});
+        }
         if (method == "camera.get") {
             auto& c = scene.camera();
             return ok(id, {{"position", v3(c.position)}, {"target", v3(c.target)},
@@ -471,6 +480,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 if (ctx.input) ctx.input->update(dt);
                 if (ctx.plugins) ctx.plugins->update(ctx, dt);
                 update_animators(scene, dt);
+                update_camera_rig(scene, dt);
                 update_animations(scene, dt);
                 update_particles(scene, dt);
                 ctx.behaviors.tick(scene, ctx.physics, ctx.game, dt);

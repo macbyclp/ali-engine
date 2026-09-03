@@ -189,6 +189,15 @@ void PhysicsSystem::set_velocity(const std::string& name, Scene& scene, const gl
     if (auto* rb = scene.registry.try_get<RigidBody>(e); rb && rb->registered)
         world_.set_linear_velocity(rb->handle, v);
 }
+void PhysicsSystem::move(const std::string& name, Scene& scene, const glm::vec3& v, bool keep_y) {
+    auto e = scene.find(name);
+    if (e == entt::null) return;
+    if (auto* rb = scene.registry.try_get<RigidBody>(e); rb && rb->registered) {
+        glm::vec3 nv = v;
+        if (keep_y) nv.y = world_.linear_velocity(rb->handle).y;
+        world_.set_linear_velocity(rb->handle, nv);
+    }
+}
 
 void PhysicsSystem::sync_characters(Scene& scene) {
     std::unordered_set<uint32_t> alive;

@@ -255,6 +255,13 @@ struct CameraComp {
     float far_z = 500.0f;
     bool active = true;
 
+    // Follow rig: when `follow` names an entity, the camera eases toward
+    // (entity + offset) looking at (entity + look_at). Updated each sim step.
+    std::string follow;
+    glm::vec3 follow_offset{0, 6, 10};
+    glm::vec3 follow_look{0, 1, 0};
+    float follow_stiffness = 6.0f;
+
     glm::mat4 view() const { return glm::lookAt(position, target, {0, 1, 0}); }
     glm::mat4 proj(float aspect) const {
         return glm::perspective(glm::radians(fov_deg), aspect, near_z, far_z);
