@@ -93,6 +93,8 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `behavior.set` | `{name, behaviors:[...]}` | — |
 | `behavior.get` | `{name}` | `{rules}` |
 | `event.emit` | `{event}` | — (bir sonraki step'te işlenir) |
+| `observe.segment` | `{path?, width?, height?}` | `{colorKey:{"idx":name}, colors:{"r,g,b":name}, path, width, height}` — her mesh düz benzersiz renk (entity kimliği) |
+| `observe.depth` | `{path?, width?, height?, near?, far?}` | `{path, width, height, near, far}` — lineer derinlik greyscale (yakın = beyaz); near/far verilmezse görünür geometriye oturtulur |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
 | `quit` | — | — |
@@ -205,6 +207,14 @@ sahneyi kur → `world.step` → `observe.screenshot`. Sürekli simülasyon içi
 
 `primitive`: `cube` \| `sphere` \| `plane` \| `gltf` (+ `gltf_path`).
 Vektörler `[x,y,z]`; `scale` tek sayı da olabilir. `rotation` XYZ derece.
+
+### Algı (perception)
+`observe.pick` bir ekran noktasından sahneye ışın atar (fizik gövdeleri + gövdesiz
+meshlerin sınır küresi). `observe.segment` her mesh'i düz benzersiz bir renkle
+çizer; `colors` sözlüğü `"r,g,b" -> isim` eşler (renkler Knuth çarpımsal hash ile
+dağıtılır, arka plan `0,0,0`). `observe.depth` lineer derinliği greyscale yazar
+(yakın = beyaz); `near`/`far` verilmezse görünür geometriye göre otomatik oturur.
+Hepsi `ctx.offscreen`'e çizer, sonra default framebuffer'a döner.
 
 ## AI döngüsü (tipik)
 1. `scene.load` veya `scene.reset`
