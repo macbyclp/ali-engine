@@ -224,8 +224,10 @@ CSG** · **heightmap terrain** · AI observation + gameplay layer · Unreal-styl
 (**undo/redo, multi-select**) · Blueprint visual scripting · **plugin API**
 ([docs](docs/PLUGINS.md)).
 
+Clients: Python (`tools/drive.py`) · **Node/TS** (`clients/js`, `ali-engine-client`).
+
 Deferred / next: Vulkan RHI · point-light shadows · Recast polygon navmesh ·
-terrain physics collider · cross-platform builds · JS/TS client SDK.
+terrain physics collider · cross-platform builds.
 
 ## License
 

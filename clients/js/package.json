@@ -1,0 +1,24 @@
+{
+  "name": "ali-engine-client",
+  "version": "0.1.0",
+  "description": "Drive the ali-engine AI-native 3D engine over its line-delimited JSON protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["ali-engine", "game-engine", "3d", "ai", "opengl"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/macbyclp/ali-engine.git", "directory": "clients/js" },
+  "engines": { "node": ">=18" },
+  "devDependencies": { "typescript": "^5.4.0", "@types/node": "^20.11.0" }
+}
