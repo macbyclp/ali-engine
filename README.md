@@ -9,7 +9,7 @@ same data model, no separate export step.
 
 `C++20` · `OpenGL 4.5` · `Windows`
 
-[**Download v0.1.1 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
+[**Download v0.1.2 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
 
 ![showcase](media/showcase.gif)
 
@@ -51,27 +51,33 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 **Rendering**
 - Metallic-roughness PBR (Cook-Torrance), procedural-sky IBL approximation
-- 3-cascade shadow maps (frustum-fit, texel-snapped, PCF)
+- 3-cascade directional shadow maps + spot-light shadow atlas (PCF)
+- SSAO (depth prepass → hemisphere kernel → blur, ambient-only)
 - HDR pipeline: RGBA16F target, ACES tonemap, bloom, exposure, vignette
 - Point / spot lights (forward, up to 16), attenuation, soft spot cones
 - Textures: albedo / normal / metallic-roughness / emissive / AO, mipmaps, anisotropy
 - glTF 2.0 import — meshes, materials (incl. embedded `.glb` textures), skins, animations
+- Procedural meshes + CSG (box/sphere/cylinder/cone/torus, union/subtract/intersect)
+- Heightmap terrain — fractal noise + sculpt brushes
 - GPU instancing by mesh+material · job-parallel frustum culling · 2000+ objects in 2 draw calls
 
 **Simulation & gameplay**
 - Jolt Physics — rigid bodies, ray casts, contact events, `CharacterVirtual` controller
-- Grid navmesh + 8-way A* pathfinding
+- Grid navmesh + 8-way A* with line-of-sight path smoothing
 - Skeletal animation — clip playback, TRS-level cross-fade, GPU skinning (128 bones)
+- Animation state machine — states, conditions, triggers, auto-blend
 - Data-driven behaviours — `on: start/tick/collision/event` → actions, conditions, timers
 - Global game state store, checkpoints (`checkpoint.save/restore`)
-- CPU particle system (additive billboards), spatial audio (miniaudio)
+- CPU particle system (additive billboards), spatial audio (miniaudio) with mixer buses
 - Screen-space UI — panels, text (stb_truetype), bars, 9 anchors
+- Plugin API — DLL/in-process plugins add commands + per-frame systems ([docs](docs/PLUGINS.md))
 
 **Tooling**
 - `--editor` — embedded Dear ImGui editor, laid out after Unreal's UMG editor,
   in an Apple-style liquid-glass skin: the live 3D scene is the full-window
   backdrop, panels are frosted-glass cards floating over it
 - ImGuizmo transform gizmos, orbit-camera viewport, live JSON console
+- Undo/redo (scene snapshots), multi-select, View-menu render toggles
 - `--shot <file.png> [--shot-frame N]` — grab the composited window to PNG, then quit
 - **Blueprint visual scripting** — node graph that compiles to behaviour JSON, and
   round-trips *from* it (see below)
@@ -89,7 +95,7 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 ## Quick start
 
-**Prebuilt:** grab [`ali-engine-v0.1.1-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
+**Prebuilt:** grab [`ali-engine-v0.1.2-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
 (≈2 MB, VC++ runtime bundled) and jump to *Run* below.
 
 **Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
