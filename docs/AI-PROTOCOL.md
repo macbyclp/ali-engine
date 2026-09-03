@@ -102,6 +102,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `observe.describe` | — | `{camera:{position,forward}, entities:[{name,kind,position,size,on_screen}], relations:[{a,rel,b}]}` — LLM için sahne özeti |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
 | `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
+| `record.start` | `{path?}` | `{path}` — bundan sonraki her istek satırını dosyaya yazar |
+| `record.stop` | — | `{path}` |
+| `record.play` | `{path}` | `{played, failed}` — kaydı yeniden oynatır (fizik dünyası önce sıfırlanır → deterministik) |
 | `quit` | — | — |
 
 ### Davranış (`behavior`)
@@ -237,6 +240,13 @@ Hepsi `ctx.offscreen`'e çizer, sonra default framebuffer'a döner.
 `kind` (mesh/light/body/terrain/camera), dünya-AABB `size`, `on_screen`; ve
 yakın entity çiftleri arasında basit `relations` (`on`, `above`, `inside`,
 `left_of`, `near`). İlişki mantığı kaba AABB çıkarımıdır, kesin değildir.
+
+### Kayıt / tekrar (record)
+`record.start` açıkken `dispatch()` gelen her istek satırını (JSONL) dosyaya
+ekler (`record.*` ve `quit` hariç). `record.play` dosyayı satır satır yeniden
+işler; önce `PhysicsWorld` tamamen sıfırlanır, böylece aynı komut akışı bit-bit
+aynı sonucu verir. Kayıt dosyasını doğrudan yeni bir motor sürecine stdin olarak
+da verebilirsin.
 
 ## AI döngüsü (tipik)
 1. `scene.load` veya `scene.reset`

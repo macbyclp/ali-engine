@@ -11,6 +11,7 @@ namespace eng {
 class PhysicsSystem {
 public:
     void sync(Scene& scene);                    // reconcile bodies with ECS
+    void clear();                               // drop every body / joint / character
     void step(Scene& scene, float dt, int substeps = 1);
     void teleport(Scene& scene, const std::string& name);  // push ECS transform -> body
     void rebuild_body(Scene& scene, const std::string& name);  // drop + recreate body (e.g. sculpted terrain)

@@ -63,6 +63,8 @@ public:
     PhysicsWorld(const PhysicsWorld&) = delete;
     PhysicsWorld& operator=(const PhysicsWorld&) = delete;
 
+    void reset();   // tear down every body/joint/character; fresh deterministic world
+
     uint32_t add_body(const BodyDesc& desc);
     void remove_body(uint32_t handle);
     void set_transform(uint32_t handle, const glm::vec3& pos, const glm::quat& rot);
