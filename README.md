@@ -9,7 +9,7 @@ same data model, no separate export step.
 
 `C++20` · `OpenGL 4.5` · `Windows`
 
-[**Download v0.1.0 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
+[**Download v0.1.1 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
 
 ![showcase](media/showcase.gif)
 
@@ -89,7 +89,7 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 ## Quick start
 
-**Prebuilt:** grab [`ali-engine-v0.1.0-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
+**Prebuilt:** grab [`ali-engine-v0.1.1-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
 (≈2 MB, VC++ runtime bundled) and jump to *Run* below.
 
 **Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
