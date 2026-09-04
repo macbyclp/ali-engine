@@ -221,6 +221,8 @@ Where ali-engine leads, for its purpose:
 If the workflow is "AI generates the game, a human reviews and tweaks it," this engine is
 built for exactly that.
 
+Full feature-by-feature breakdown: [`docs/vs-godot.md`](docs/vs-godot.md).
+
 ---
 
 ## Roadmap
