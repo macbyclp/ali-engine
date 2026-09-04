@@ -163,7 +163,7 @@ JSON'una `mesh.build` olarak serialize edilir; yeniden yüklenince yeniden üret
 ### Ortam / post (`environment` bloğu)
 Sahne JSON'unun üst düzey `environment` objesi frame ayarlarını tutar; `render.set`
 ile de yazılır. Anahtarlar: `ssao` (bool, varsayılan açık), `ssao_radius` (~0.6),
-`ssao_intensity` (~1.1). SSAO ekran-uzayı ambient occlusion — temas/oyuk
+`ssao_intensity` (~1.1), `fxaa` (bool, varsayılan açık — kenar yumuşatma). SSAO ekran-uzayı ambient occlusion — temas/oyuk
 bölgelerinde ambient ışığı koyulaştırır.
 
 **HDRI ortam ışığı (IBL).** `hdri` = bir equirectangular `.hdr` dosyası yolu

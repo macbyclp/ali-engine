@@ -459,6 +459,37 @@ void main(){
     FragColor = vec4(col, 1.0);
 }
 )";
+// Compact FXAA (Lottes' console preset) on the tonemapped LDR image.
+static const char* kFxaaFrag = R"(
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uRcp;          // 1 / resolution
+out vec4 FragColor;
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+    vec3 rgbM = texture(uTex, vUV).rgb;
+    float lM  = luma(rgbM);
+    float lNW = luma(texture(uTex, vUV + vec2(-1.0, -1.0) * uRcp).rgb);
+    float lNE = luma(texture(uTex, vUV + vec2( 1.0, -1.0) * uRcp).rgb);
+    float lSW = luma(texture(uTex, vUV + vec2(-1.0,  1.0) * uRcp).rgb);
+    float lSE = luma(texture(uTex, vUV + vec2( 1.0,  1.0) * uRcp).rgb);
+    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    if (lMax - lMin < lMax * 0.125 + 0.0312) { FragColor = vec4(rgbM, 1.0); return; }
+
+    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), ((lNW + lSW) - (lNE + lSE)));
+    float dr = max((lNW + lNE + lSW + lSE) * 0.25 * 0.125, 0.0078125);
+    float rd = 1.0 / (min(abs(dir.x), abs(dir.y)) + dr);
+    dir = clamp(dir * rd, -8.0, 8.0) * uRcp;
+
+    vec3 a = 0.5 * (texture(uTex, vUV + dir * (1.0 / 3.0 - 0.5)).rgb +
+                    texture(uTex, vUV + dir * (2.0 / 3.0 - 0.5)).rgb);
+    vec3 b = a * 0.5 + 0.25 * (texture(uTex, vUV + dir * -0.5).rgb +
+                               texture(uTex, vUV + dir *  0.5).rgb);
+    float lB = luma(b);
+    FragColor = vec4((lB < lMin || lB > lMax) ? a : b, 1.0);
+}
+)";
 static const char* kParticleVert = R"(
 layout(location=0) in vec3 iPos;
 layout(location=1) in vec4 iColor;
@@ -570,6 +601,7 @@ Renderer::Renderer(int w, int h)
       point_shadow_(kPointShadowVert, kPointShadowFrag),
       ssao_(kFsVert, kSsaoFrag),
       ssao_blur_(kFsVert, kAoBlurFrag),
+      fxaa_(kFsVert, kFxaaFrag),
       tonemap_(kFsVert, kTonemapFrag),
       bright_(kFsVert, kBrightFrag),
       blur_(kFsVert, kBlurFrag),
@@ -626,6 +658,7 @@ Renderer::Renderer(int w, int h)
     glNamedFramebufferReadBuffer(point_fbo_, GL_NONE);
 
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
+    ldr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA8, false);
     bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
     bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
 
@@ -853,6 +886,7 @@ void Renderer::ensure_ssao(int w, int h) {
 void Renderer::ensure_hdr(int w, int h) {
     if (hdr_->width() != w || hdr_->height() != h) {
         hdr_->resize(w, h);
+        ldr_->resize(w, h);
         bloom_a_->resize(std::max(1, w / 2), std::max(1, h / 2));
         bloom_b_->resize(std::max(1, w / 2), std::max(1, h / 2));
     }
@@ -1390,8 +1424,9 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     // bloom
     bloom_pass(w, h);
 
-    // pass 3: tonemap + bloom composite
-    glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
+    // pass 3: tonemap + bloom composite  (-> LDR buffer when FXAA is on, else straight out)
+    bool fxaa_on = scene.env.value("fxaa", true);
+    glBindFramebuffer(GL_FRAMEBUFFER, fxaa_on ? ldr_->id() : target_fbo);
     glViewport(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1405,6 +1440,18 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     tonemap_.set("uVignette", 0.25f);
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // pass 4: FXAA edge smoothing on the tonemapped image
+    if (fxaa_on) {
+        glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
+        glViewport(0, 0, w, h);
+        glClear(GL_COLOR_BUFFER_BIT);
+        fxaa_.use();
+        glBindTextureUnit(0, ldr_->color_texture());
+        fxaa_.set("uTex", 0);
+        fxaa_.set("uRcp", glm::vec2(1.0f / w, 1.0f / h));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
     glEnable(GL_DEPTH_TEST);
 
     ui_pass(scene, w, h);

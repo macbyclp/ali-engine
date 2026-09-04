@@ -34,9 +34,9 @@ private:
     static constexpr int kPointShadows = 2;   // cube-map-array layers for point lights
 
     Shader pbr_, sky_, shadow_, point_shadow_, tonemap_, bright_, blur_, particle_;
-    Shader ssao_, ssao_blur_;
+    Shader ssao_, ssao_blur_, fxaa_;
     Shader ui_solid_, ui_text_;
-    std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_;
+    std::unique_ptr<Framebuffer> hdr_, bloom_a_, bloom_b_, ldr_;
     unsigned csm_fbo_ = 0, csm_tex_ = 0;
     int csm_size_ = 2048;
     unsigned spot_fbo_ = 0, spot_atlas_ = 0;
