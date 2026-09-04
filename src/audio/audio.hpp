@@ -17,14 +17,25 @@ public:
 
     bool ok() const;
 
-    // Returns a handle (0 on failure). spatial=false plays as UI/2D sound.
-    // `bus` routes the sound through a named group (created on first use);
-    // empty = straight to the master output.
+    struct PlayOpts {
+        float volume = 1.0f;
+        bool loop = false;
+        bool spatial = false;
+        bool stream = false;      // decode-on-the-fly -- use for music, not SFX
+        float pitch = 1.0f;
+        float fade_in_ms = 0.0f;
+        glm::vec3 pos{0.0f};
+        std::string bus;
+    };
+    // Returns a handle (0 on failure).
+    uint32_t play(const std::string& file, const PlayOpts& opts);
+    // Legacy shorthand.
     uint32_t play(const std::string& file, float volume, bool loop, bool spatial,
                   const glm::vec3& pos, const std::string& bus = {});
     void set_position(uint32_t handle, const glm::vec3& pos);
     void set_volume(uint32_t handle, float volume);
-    void stop(uint32_t handle);
+    void set_pitch(uint32_t handle, float pitch);
+    void stop(uint32_t handle, float fade_out_ms = 0.0f);
     void set_listener(const glm::vec3& pos, const glm::vec3& forward);
 
     // Mixer buses. "master" is the final output; other names are sub-groups.

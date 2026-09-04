@@ -74,6 +74,7 @@ int main(int argc, char** argv) {
     eng::InputSystem input;
     input.attach(headless ? nullptr : window.handle());
     behaviors.set_input(&input);
+    behaviors.set_audio(&audio);
     ctx.input = &input;
     auto apply_scene_input = [&] {
         for (auto& [action, keys] : scene.input_map.items())

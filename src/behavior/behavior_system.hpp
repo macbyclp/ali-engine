@@ -1,4 +1,5 @@
 #pragma once
+#include "audio/audio.hpp"
 #include "game/gamestate.hpp"
 #include "input/input.hpp"
 #include "physics/physics_system.hpp"
@@ -17,10 +18,13 @@ public:
     void reset() { pending_events_.clear(); }
     // Optional: enables the `on: input / inputPressed / inputReleased` triggers.
     void set_input(InputSystem* in) { input_ = in; }
+    // Optional: enables the `sound` action.
+    void set_audio(AudioEngine* a) { audio_ = a; }
 
 private:
     std::vector<std::string> pending_events_;
     InputSystem* input_ = nullptr;
+    AudioEngine* audio_ = nullptr;
 
     void run_rules(Scene&, PhysicsSystem&, GameState&, entt::entity self, const char* trigger,
                    const std::string& other, float dt,

@@ -567,18 +567,29 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                            {"transitions", c->transitions.size()}});
         }
         if (method == "audio.play") {
-            std::string file = p.at("file").get<std::string>();
-            bool spatial = p.value("spatial", p.contains("position"));
-            glm::vec3 pos = v3(p.value("position", json()), glm::vec3(0));
-            uint32_t h = ctx.audio.play(file, p.value("volume", 1.0f),
-                                        p.value("loop", false), spatial, pos,
-                                        p.value("bus", std::string()));
+            AudioEngine::PlayOpts o;
+            o.volume = p.value("volume", 1.0f);
+            o.loop = p.value("loop", false);
+            o.spatial = p.value("spatial", p.contains("position"));
+            o.stream = p.value("stream", false);
+            o.pitch = p.value("pitch", 1.0f);
+            o.fade_in_ms = p.value("fade_in", 0.0f);
+            o.pos = v3(p.value("position", json()), glm::vec3(0));
+            o.bus = p.value("bus", std::string());
+            uint32_t h = ctx.audio.play(p.at("file").get<std::string>(), o);
             if (!h) return fail(id, ctx.audio.ok() ? "load failed" : "no audio device");
             return ok(id, {{"handle", h}});
         }
+        if (method == "audio.set") {
+            uint32_t h = (uint32_t)p.at("handle").get<int64_t>();
+            if (p.contains("volume")) ctx.audio.set_volume(h, p["volume"].get<float>());
+            if (p.contains("pitch")) ctx.audio.set_pitch(h, p["pitch"].get<float>());
+            if (p.contains("position")) ctx.audio.set_position(h, v3(p["position"], glm::vec3(0)));
+            return ok(id);
+        }
         if (method == "audio.stop") {
             if (p.contains("bus")) ctx.audio.stop_bus(p["bus"].get<std::string>());
-            else ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>());
+            else ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>(), p.value("fade_out", 0.0f));
             return ok(id);
         }
         if (method == "render.set") {
