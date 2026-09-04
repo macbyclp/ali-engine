@@ -1,4 +1,4 @@
-ali-engine v0.1.2  (Windows x64)
+ali-engine v0.1.3  (Windows x64)
 ================================
 
 An AI-native 3D game engine. An AI agent builds and runs a whole game over a

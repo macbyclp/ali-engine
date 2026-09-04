@@ -9,7 +9,7 @@ same data model, no separate export step.
 
 `C++20` · `OpenGL 4.5` · `Windows`
 
-[**Download v0.1.2 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
+[**Download v0.1.3 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
 
 ![showcase](media/showcase.gif)
 
@@ -27,7 +27,7 @@ rules, step the simulation, and **get the rendered frame back as an image** to r
 about — then iterate.
 
 Everything is data. The scene is JSON. Behaviours are JSON. The control surface is
-~50 line-delimited JSON commands on stdin/stdout. That makes the engine:
+~75 line-delimited JSON commands on stdin/stdout. That makes the engine:
 
 - **AI-native** — a model emits commands, reads back screenshots and structured state
 - **Deterministic** — same scene + same commands → same result; fixed-step simulation
@@ -98,7 +98,7 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 ## Quick start
 
-**Prebuilt:** grab [`ali-engine-v0.1.2-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
+**Prebuilt:** grab [`ali-engine-v0.1.3-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
 (≈2 MB, VC++ runtime bundled) and jump to *Run* below.
 
 **Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
@@ -229,14 +229,19 @@ Done: core · PBR + CSM · Jolt physics · behaviours · culling/instancing · t
 scene graph + prefabs · skeletal animation + blend + **state machine** · point/spot
 lights + **spot shadows** · character + navigation (**with path smoothing**) ·
 particles/audio (**+ mixer buses**)/post · **SSAO** · UI + text · **procedural mesh /
-CSG** · **heightmap terrain** · AI observation + gameplay layer · Unreal-style editor
-(**undo/redo, multi-select**) · Blueprint visual scripting · **plugin API**
+CSG** · **heightmap terrain (+ physics colliders)** · **image-based lighting (HDRI)** ·
+**named-action input + virtual input** · **trigger volumes** · **physics constraints** ·
+**AI perception** (`observe.pick / segment / depth / describe`) · **command record/replay** ·
+AI observation + gameplay layer · Unreal-style editor (**undo/redo, multi-select,
+click-pick, asset browser, follow camera**) · Blueprint visual scripting · **plugin API**
 ([docs](docs/PLUGINS.md)).
+
+Example game: [`games/orbrun`](games/orbrun) — a 40-second collectathon authored entirely
+as scene JSON, no C++.
 
 Clients: Python (`tools/drive.py`) · **Node/TS** (`clients/js`, `ali-engine-client`).
 
-Deferred / next: Vulkan RHI · point-light shadows · Recast polygon navmesh ·
-terrain physics collider · cross-platform builds.
+Deferred / next: Vulkan RHI · Recast polygon navmesh · prefiltered IBL · cross-platform builds.
 
 ## License
 
