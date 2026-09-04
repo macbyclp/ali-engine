@@ -53,23 +53,32 @@ bool AudioEngine::ok() const { return p_->ready; }
 
 uint32_t AudioEngine::play(const std::string& file, float volume, bool loop, bool spatial,
                            const glm::vec3& pos, const std::string& bus) {
+    PlayOpts o;
+    o.volume = volume; o.loop = loop; o.spatial = spatial; o.pos = pos; o.bus = bus;
+    return play(file, o);
+}
+
+uint32_t AudioEngine::play(const std::string& file, const PlayOpts& o) {
     if (!p_->ready) return 0;
-    ma_sound_group* group = p_->bus(bus);
+    ma_sound_group* group = p_->bus(o.bus);
     auto* s = new ma_sound();
-    ma_uint32 flags = MA_SOUND_FLAG_DECODE;
+    ma_uint32 flags = o.stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
     if (ma_sound_init_from_file(&p_->engine, file.c_str(), flags, group, nullptr, s) != MA_SUCCESS) {
         log::error("audio: cannot load %s", file.c_str());
         delete s;
         return 0;
     }
-    ma_sound_set_volume(s, volume);
-    ma_sound_set_looping(s, loop ? MA_TRUE : MA_FALSE);
-    ma_sound_set_spatialization_enabled(s, spatial ? MA_TRUE : MA_FALSE);
-    if (spatial) ma_sound_set_position(s, pos.x, pos.y, pos.z);
+    ma_sound_set_volume(s, o.volume);
+    ma_sound_set_pitch(s, o.pitch <= 0.0f ? 1.0f : o.pitch);
+    ma_sound_set_looping(s, o.loop ? MA_TRUE : MA_FALSE);
+    ma_sound_set_spatialization_enabled(s, o.spatial ? MA_TRUE : MA_FALSE);
+    if (o.spatial) ma_sound_set_position(s, o.pos.x, o.pos.y, o.pos.z);
+    if (o.fade_in_ms > 0.0f)
+        ma_sound_set_fade_in_milliseconds(s, 0.0f, o.volume, (ma_uint64)o.fade_in_ms);
     ma_sound_start(s);
     uint32_t h = p_->next++;
     p_->sounds[h] = s;
-    if (!bus.empty()) p_->sound_bus[h] = bus;
+    if (!o.bus.empty()) p_->sound_bus[h] = o.bus;
     return h;
 }
 
@@ -81,9 +90,19 @@ void AudioEngine::set_volume(uint32_t h, float v) {
     auto it = p_->sounds.find(h);
     if (it != p_->sounds.end()) ma_sound_set_volume(it->second, v);
 }
-void AudioEngine::stop(uint32_t h) {
+void AudioEngine::set_pitch(uint32_t h, float pitch) {
+    auto it = p_->sounds.find(h);
+    if (it != p_->sounds.end() && pitch > 0.0f) ma_sound_set_pitch(it->second, pitch);
+}
+void AudioEngine::stop(uint32_t h, float fade_out_ms) {
     auto it = p_->sounds.find(h);
     if (it == p_->sounds.end()) return;
+    if (fade_out_ms > 0.0f) {
+        // fade then let it finish on its own; miniaudio stops a faded-to-0 sound
+        ma_sound_set_fade_in_milliseconds(it->second, -1.0f, 0.0f, (ma_uint64)fade_out_ms);
+        ma_sound_set_stop_time_in_milliseconds(it->second, (ma_uint64)fade_out_ms);
+        return;
+    }
     ma_sound_stop(it->second);
     ma_sound_uninit(it->second);
     delete it->second;

@@ -62,8 +62,9 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `nav.path` | `{from, to}` | `{waypoints:[...]}` — A* + görüş-hattı düzleştirme (string-pull) |
 | `particles.emit` | `{name, position?, rate?, lifetime?, velocity?, velocity_spread?, gravity?, start_color?, end_color?, start_size?, end_size?}` | — |
 | `particles.stop` | `{name}` | — |
-| `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?}` | `{handle}` |
-| `audio.stop` | `{handle}` veya `{bus}` (bus'taki tüm sesler) | — |
+| `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?, stream?, pitch?, fade_in?}` | `{handle}` — `stream:true` müzik için (baştan sona decode yok) |
+| `audio.set` | `{handle, volume?, pitch?, position?}` | — |
+| `audio.stop` | `{handle, fade_out?}` veya `{bus}` | — |
 | `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
 | `render.set` | `{ssao?, ssao_radius?, ssao_intensity?, ...}` — sahne `environment` bloğuna yazar | `{environment}` |
 | `render.get` | — | `{environment}` |
@@ -117,8 +118,12 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
   {"on": "event", "name": "burst", "do": [{"action": "spawn", "primitive": "sphere", "position": [0,5,0]}]}
 ]
 ```
-Aksiyonlar: `log`, `setVelocity {velocity}`, `impulse {impulse}`, `spin {axis,speed_deg}`,
-`moveToward {target,speed}`, `setMaterial/setColor {color,metallic,roughness}`,
+Tetikler: `start`, `tick`, `collision {with}`, `enter {with}` / `exit {with}` (sensör),
+`event {name}`, `input {action}` / `inputPressed` / `inputReleased`.
+Aksiyonlar: `log`, `setVelocity {velocity}`, `move {velocity, keep_y?}` (Y'yi bozmaz),
+`impulse {impulse}`, `spin {axis,speed_deg}`, `moveToward {target,speed}`,
+`setMaterial/setColor {color,metallic,roughness}`, `animParam {target?, param, value}`,
+`sound {file, volume?, pitch?, loop?, bus?, spatial?}`,
 `spawn {…entity params…, relative?}`, `destroy {target?}`, `emit {event}`,
 `setState {key,value}`, `addState {key,value}`, `timer {after,event}`,
 `setUI {target, text?, value?, visible?}` (`text` içinde `${key}` state ile değişir).

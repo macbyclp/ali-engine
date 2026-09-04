@@ -94,6 +94,15 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState
             // horizontal drive that leaves gravity / jump on the Y axis alone
             physics.move(self_name, scene, v3(a.value("velocity", json()), glm::vec3(0)),
                          a.value("keep_y", true));
+        } else if (act == "sound" && audio_) {
+            AudioEngine::PlayOpts o;
+            o.volume = a.value("volume", 1.0f);
+            o.loop = a.value("loop", false);
+            o.pitch = a.value("pitch", 1.0f);
+            o.stream = a.value("stream", false);
+            o.bus = a.value("bus", std::string());
+            if (t && a.value("spatial", false)) { o.spatial = true; o.pos = t->position; }
+            audio_->play(a.value("file", std::string()), o);
         } else if (act == "impulse") {
             physics.impulse(self_name, scene, v3(a.value("impulse", json()), glm::vec3(0)));
         } else if (act == "spin" && t) {
