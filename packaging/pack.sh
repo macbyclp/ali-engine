@@ -13,7 +13,8 @@ EXE="build/Release/engine.exe"
 [ -f "$EXE" ] || { echo "missing $EXE -- build Release first"; exit 1; }
 
 rm -rf "$OUT" "dist/${NAME}.zip"
-mkdir -p "$OUT/docs" "$OUT/scenes" "$OUT/tools" "$OUT/assets/fonts" "$OUT/plugins"
+mkdir -p "$OUT/docs" "$OUT/scenes" "$OUT/tools" "$OUT/assets/fonts" "$OUT/assets/hdri" \
+         "$OUT/plugins" "$OUT/games/orbrun" "$OUT/clients"
 : > "$OUT/plugins/.keep"
 
 cp "$EXE" "$OUT/"
@@ -30,6 +31,10 @@ cp docs/AI-PROTOCOL.md docs/PLUGINS.md "$OUT/docs/"
 cp scenes/*.json "$OUT/scenes/"
 cp tools/drive.py tools/gen_media.py "$OUT/tools/"
 cp assets/fonts/LiberationSans-Regular.ttf assets/fonts/LiberationSans-LICENSE.txt "$OUT/assets/fonts/"
+cp assets/hdri/*.hdr "$OUT/assets/hdri/"
+cp games/orbrun/orbrun.json games/orbrun/README.md games/orbrun/build.py "$OUT/games/orbrun/"
+cp -r clients/js "$OUT/clients/js"
+rm -rf "$OUT/clients/js/node_modules" "$OUT/clients/js/dist"
 
 ( cd dist && powershell -NoProfile -Command "Compress-Archive -Path '${NAME}/*' -DestinationPath '${NAME}.zip' -Force" )
 echo "built dist/${NAME}.zip"
