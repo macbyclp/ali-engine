@@ -449,11 +449,15 @@ uniform float uBloomStrength;
 uniform float uExposure;
 uniform float uVignette;
 out vec4 FragColor;
+uniform int uTonemap;   // 0 aces, 1 reinhard, 2 linear/clamp
 vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);}
 void main(){
     vec3 hdr = texture(uHDR, vUV).rgb * uExposure;
     hdr += texture(uBloom, vUV).rgb * uBloomStrength;
-    vec3 col = pow(aces(hdr), vec3(1.0/2.2));
+    vec3 mapped = uTonemap == 1 ? hdr / (hdr + 1.0)
+                : uTonemap == 2 ? clamp(hdr, 0.0, 1.0)
+                                : aces(hdr);
+    vec3 col = pow(mapped, vec3(1.0/2.2));
     vec2 d = vUV - 0.5;
     col *= 1.0 - uVignette * dot(d, d) * 2.0;
     FragColor = vec4(col, 1.0);
@@ -1435,9 +1439,13 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glBindTextureUnit(1, bloom_a_->color_texture());
     tonemap_.set("uHDR", 0);
     tonemap_.set("uBloom", 1);
-    tonemap_.set("uBloomStrength", 0.04f);
-    tonemap_.set("uExposure", 1.0f);
-    tonemap_.set("uVignette", 0.25f);
+    tonemap_.set("uBloomStrength", scene.env.value("bloom", 0.04f));
+    tonemap_.set("uExposure", scene.env.value("exposure", 1.0f));
+    tonemap_.set("uVignette", scene.env.value("vignette", 0.25f));
+    {
+        std::string tm = scene.env.value("tonemap", std::string("aces"));
+        tonemap_.set("uTonemap", tm == "reinhard" ? 1 : tm == "linear" ? 2 : 0);
+    }
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
