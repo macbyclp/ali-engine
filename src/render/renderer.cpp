@@ -7,7 +7,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -267,7 +271,9 @@ vec3 brdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float rough, float metallic, vec3
     return (kd * albedo / PI + spec) * NoL;
 }
 
+uniform int uShadowsOn;
 float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
+    if (uShadowsOn == 0) return 1.0;
     float viewDepth = -(uView * vec4(worldPos, 1.0)).z;
     int c = 2;
     if (viewDepth < uCascadeSplit[0]) c = 0;
@@ -405,12 +411,13 @@ in vec2 vUV;
 uniform sampler2D uAO;
 out float FragColor;
 void main() {
+    // 4x4 box blur as 4 bilinear taps (each lands between two texels per axis)
     vec2 texel = 1.0 / vec2(textureSize(uAO, 0));
-    float sum = 0.0;
-    for (int x = -2; x < 2; ++x)
-        for (int y = -2; y < 2; ++y)
-            sum += texture(uAO, vUV + vec2(x, y) * texel).r;
-    FragColor = sum / 16.0;
+    float sum = texture(uAO, vUV + vec2(-1.5, -1.5) * texel).r
+              + texture(uAO, vUV + vec2( 0.5, -1.5) * texel).r
+              + texture(uAO, vUV + vec2(-1.5,  0.5) * texel).r
+              + texture(uAO, vUV + vec2( 0.5,  0.5) * texel).r;
+    FragColor = sum * 0.25;
 }
 )";
 
@@ -418,12 +425,19 @@ static const char* kBrightFrag = R"(
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform float uThreshold;
+uniform vec2 uTexel;        // 1 / source size
 out vec4 FragColor;
-void main() {
-    vec3 c = texture(uSrc, vUV).rgb;
+vec3 bright(vec2 uv) {
+    vec3 c = texture(uSrc, uv).rgb;
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
     float k = max(l - uThreshold, 0.0) / max(l, 1e-4);
-    FragColor = vec4(c * k, 1.0);
+    return c * k;
+}
+void main() {
+    // target is 1/4 res: 4 bilinear taps cover the whole 4x4 source block
+    vec3 c = bright(vUV + vec2(-1.0, -1.0) * uTexel) + bright(vUV + vec2(1.0, -1.0) * uTexel)
+           + bright(vUV + vec2(-1.0,  1.0) * uTexel) + bright(vUV + vec2(1.0,  1.0) * uTexel);
+    FragColor = vec4(c * 0.25, 1.0);
 }
 )";
 static const char* kBlurFrag = R"(
@@ -663,8 +677,8 @@ Renderer::Renderer(int w, int h)
 
     hdr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA16F, false);
     ldr_ = std::make_unique<Framebuffer>(w, h, ColorFormat::RGBA8, false);
-    bloom_a_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
-    bloom_b_ = std::make_unique<Framebuffer>(w / 2, h / 2, ColorFormat::RGBA16F, false);
+    bloom_a_ = std::make_unique<Framebuffer>(std::max(1, w / 4), std::max(1, h / 4), ColorFormat::RGBA16F, false);
+    bloom_b_ = std::make_unique<Framebuffer>(std::max(1, w / 4), std::max(1, h / 4), ColorFormat::RGBA16F, false);
 
     // SSAO hemisphere kernel (cosine-ish weighted toward the origin) + 4x4 noise
     {
@@ -701,8 +715,11 @@ Renderer::Renderer(int w, int h)
     glVertexArrayAttribBinding(ui_vao_, 0, 0);
 
     const char* candidates[] = {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf",
-                                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
+                                ENGINE_ASSET_DIR "/assets/fonts/LiberationSans-Regular.ttf",  // shipped (OFL)
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"};
     for (const char* c : candidates) {
+        if (!std::filesystem::exists(c)) continue;   // don't log an error for every other platform's path
         font_ = std::make_unique<Font>(c, 48.0f);
         if (font_->ok()) break;
     }
@@ -891,13 +908,13 @@ void Renderer::ensure_hdr(int w, int h) {
     if (hdr_->width() != w || hdr_->height() != h) {
         hdr_->resize(w, h);
         ldr_->resize(w, h);
-        bloom_a_->resize(std::max(1, w / 2), std::max(1, h / 2));
-        bloom_b_->resize(std::max(1, w / 2), std::max(1, h / 2));
+        bloom_a_->resize(std::max(1, w / 4), std::max(1, h / 4));
+        bloom_b_->resize(std::max(1, w / 4), std::max(1, h / 4));
     }
 }
 
 void Renderer::bloom_pass(int w, int h) {
-    int bw = std::max(1, w / 2), bh = std::max(1, h / 2);
+    int bw = std::max(1, w / 4), bh = std::max(1, h / 4);
     glDisable(GL_DEPTH_TEST);
     glBindVertexArray(empty_vao_);
 
@@ -907,12 +924,13 @@ void Renderer::bloom_pass(int w, int h) {
     glBindTextureUnit(0, hdr_->color_texture());
     bright_.set("uSrc", 0);
     bright_.set("uThreshold", 1.0f);
+    bright_.set("uTexel", glm::vec2(1.0f / w, 1.0f / h));
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     blur_.use();
     blur_.set("uSrc", 0);
     bool horizontal = true;
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 2; ++i) {
         Framebuffer* dst = horizontal ? bloom_b_.get() : bloom_a_.get();
         Framebuffer* src = horizontal ? bloom_a_.get() : bloom_b_.get();
         dst->bind();
@@ -930,6 +948,60 @@ void Renderer::ensure_instances(size_t bytes) {
     if (bytes <= instance_capacity_) return;
     instance_capacity_ = std::max(bytes, instance_capacity_ * 2 + 4096);
     glNamedBufferData(instance_vbo_, instance_capacity_, nullptr, GL_DYNAMIC_DRAW);
+}
+
+
+// Shadow-map cache: a depth map is only redrawn when its caster set or light changed.
+static inline uint64_t hmix(uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    h *= 0xff51afd7ed558ccdULL;
+    return h ^ (h >> 32);
+}
+static uint64_t hash_bytes(uint64_t h, const void* data, size_t bytes) {
+    const uint32_t* w = static_cast<const uint32_t*>(data);
+    for (size_t i = 0; i < bytes / 4; ++i) h = hmix(h, w[i]);
+    return h;
+}
+
+// ALI_GPU_PROF=1: GL_TIME_ELAPSED per render pass, averaged and printed every 300 frames.
+namespace {
+struct GpuProf {
+    bool on = std::getenv("ALI_GPU_PROF") != nullptr;
+    unsigned q = 0;
+    const char* cur = nullptr;
+    std::vector<std::pair<const char*, double>> acc;
+    int frames = 0;
+    void add(const char* n, double ms) {
+        for (auto& a : acc) if (a.first == n || std::strcmp(a.first, n) == 0) { a.second += ms; return; }
+        acc.push_back({n, ms});
+    }
+    void end() {
+        if (!cur) return;
+        glEndQuery(GL_TIME_ELAPSED);
+        GLuint64 ns = 0;
+        glGetQueryObjectui64v(q, GL_QUERY_RESULT, &ns);
+        add(cur, ns / 1e6);
+        cur = nullptr;
+    }
+    void mark(const char* n) {
+        if (!on) return;
+        if (!q) glGenQueries(1, &q);
+        end();
+        cur = n;
+        glBeginQuery(GL_TIME_ELAPSED, q);
+    }
+    void frame_end() {
+        if (!on) return;
+        end();
+        if (++frames % 300 == 0) {
+            std::fprintf(stderr, "GPUPROF (avg ms over 300 frames):");
+            double tot = 0;
+            for (auto& a : acc) { std::fprintf(stderr, " %s=%.3f", a.first, a.second / 300); tot += a.second / 300; }
+            std::fprintf(stderr, " TOTAL=%.3f\n", tot);
+            acc.clear();
+        }
+    }
+} g_prof;
 }
 
 void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
@@ -1022,6 +1094,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
 
     auto tid = [](const std::shared_ptr<Texture>& t) { return t ? t->id() : 0u; };
     std::unordered_map<MatKey, std::vector<InstanceData>, MatKeyHash> visible_groups, all_groups;
+    std::vector<InstanceData> item_inst(items.size());
     for (size_t i = 0; i < items.size(); ++i) {
         MeshRenderer& m = *items[i].mr;
         MatKey key{items[i].mesh, tid(m.t_base), tid(m.t_normal), tid(m.t_mr),
@@ -1030,10 +1103,20 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
                        glm::vec4(m.base_color, m.roughness),
                        glm::vec4(m.metallic, m.uv_scale.x, m.uv_scale.y, 0),
                        glm::vec4(m.emissive, 0)};
+        item_inst[i] = d;
         all_groups[key].push_back(d);
         if (vis[i]) { visible_groups[key].push_back(d); stats_.visible++; }
     }
     stats_.culled = stats_.entities - stats_.visible;
+
+    // Shadow maps are redrawn only when what a face/tile/cascade sees actually changed.
+    // Skinned meshes are never culled: their model + joint matrices go into every key.
+    bool cache_ok = std::getenv("ALI_NO_SHADOW_CACHE") == nullptr;
+    uint64_t skin_hash = 0x5eed;
+    for (auto& si : skinned) {
+        skin_hash = hash_bytes(skin_hash, &si.model, sizeof(glm::mat4));
+        if (si.joints) skin_hash = hash_bytes(skin_hash, si.joints->data(), si.joints->size() * sizeof(glm::mat4));
+    }
     // one frame uploads: kCascades shadow passes (all groups) + 1 visible pass,
     // packed consecutively into the ring buffer -- size for the worst case so the
     // cursor never wraps and stomps data a pending draw still needs.
@@ -1082,6 +1165,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         cascade_vp[c] = lproj * lview;
     }
 
+    g_prof.mark("csm");
     GLintptr cursor = 0;
     auto upload = [&](const std::vector<InstanceData>& insts) -> GLintptr {
         GLsizeiptr bytes = insts.size() * sizeof(InstanceData);
@@ -1122,6 +1206,32 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     // pass 1: shadow (one depth render per cascade)
     glBindFramebuffer(GL_FRAMEBUFFER, csm_fbo_);
     glViewport(0, 0, csm_size_, csm_size_);
+    // Casters inside `f` (and within `range` of `lpos` when given) grouped by mesh; returns a
+    // content hash of the selection (per-item hashes summed, so order-independent).
+    std::unordered_map<Mesh*, std::vector<InstanceData>> face_groups;
+    auto gather = [&](const Frustum& f, const glm::vec3* lpos, float range) -> uint64_t {
+        for (auto& kv : face_groups) kv.second.clear();
+        uint64_t h = 0;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!f.sphere_in(items[i].wc, items[i].wr)) continue;
+            if (lpos && glm::length(items[i].wc - *lpos) > range + items[i].wr) continue;
+            face_groups[items[i].mesh].push_back(item_inst[i]);
+            h += hash_bytes(hmix(0, reinterpret_cast<uintptr_t>(items[i].mesh)),
+                            &item_inst[i].model, sizeof(glm::mat4));
+        }
+        return h;
+    };
+    auto draw_gathered = [&]() {
+        for (auto& [mesh, insts] : face_groups) {
+            if (insts.empty()) continue;
+            GLintptr at = upload(insts);
+            glVertexArrayVertexBuffer(draw_vao_, 0, mesh->vbo(), 0, sizeof(Vertex));
+            glVertexArrayElementBuffer(draw_vao_, mesh->ebo());
+            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+            glDrawElementsInstanced(GL_TRIANGLES, mesh->index_count(), GL_UNSIGNED_INT,
+                                    nullptr, (GLsizei)insts.size());
+        }
+    };
     glEnable(GL_DEPTH_TEST);
     glCullFace(GL_FRONT);
     glEnable(GL_POLYGON_OFFSET_FILL);
@@ -1130,18 +1240,15 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     shadow_.set("uSkinned", 0);
     glBindVertexArray(draw_vao_);
     for (int c = 0; c < kCascades; ++c) {
+        Frustum cf; cf.from(cascade_vp[c]);
+        uint64_t ck = hash_bytes(hmix(gather(cf, nullptr, 0.0f) ^ skin_hash, 1000 + c),
+                                 &cascade_vp[c], sizeof(glm::mat4));
+        if (cache_ok && ck == csm_key_[c]) continue;
+        csm_key_[c] = cache_ok ? ck : 0;
         glNamedFramebufferTextureLayer(csm_fbo_, GL_DEPTH_ATTACHMENT, csm_tex_, 0, c);
         glClear(GL_DEPTH_BUFFER_BIT);
         shadow_.set("uLightVP", cascade_vp[c]);
-        for (auto& [key, insts] : all_groups) {
-            if (insts.empty()) continue;
-            GLintptr at = upload(insts);
-            glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
-            glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
-            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
-            glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
-                                    nullptr, (GLsizei)insts.size());
-        }
+        draw_gathered();
         draw_skinned(shadow_);
     }
     glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1160,26 +1267,24 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         glBindVertexArray(draw_vao_);
         int half = spot_atlas_size_ / 2;
         for (int s = 0; s < spot_used; ++s) {
+            Frustum sf; sf.from(spot_vp[s]);
+            uint64_t sk = hash_bytes(hmix(gather(sf, nullptr, 0.0f) ^ skin_hash, 2000 + s),
+                                     &spot_vp[s], sizeof(glm::mat4));
+            if (cache_ok && sk == spot_key_[s]) continue;
+            spot_key_[s] = cache_ok ? sk : 0;
             int tx = (s % 2) * half, ty = (s / 2) * half;
             glViewport(tx, ty, half, half);
             glScissor(tx, ty, half, half);
             glClear(GL_DEPTH_BUFFER_BIT);
             shadow_.set("uLightVP", spot_vp[s]);
-            for (auto& [key, insts] : all_groups) {
-                if (insts.empty()) continue;
-                GLintptr at = upload(insts);
-                glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
-                glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
-                glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
-                glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
-                                        nullptr, (GLsizei)insts.size());
-            }
+            draw_gathered();
             draw_skinned(shadow_);
         }
         glDisable(GL_SCISSOR_TEST);
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
 
+    g_prof.mark("point");
     // pass 1c: point-light shadows -- 6 cube faces per shadowing point light
     if (point_used > 0) {
         static const glm::vec3 kFaceFwd[6] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
@@ -1197,24 +1302,23 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
             point_shadow_.set("uLightPos", point_pos[s]);
             point_shadow_.set("uFar", point_far[s]);
             for (int f = 0; f < 6; ++f) {
+                glm::mat4 pv = pproj * glm::lookAt(point_pos[s], point_pos[s] + kFaceFwd[f], kFaceUp[f]);
+                Frustum pf; pf.from(pv);
+                uint64_t pk = hmix(gather(pf, &point_pos[s], point_far[s]) ^ skin_hash, 3000 + s * 6 + f);
+                pk = hash_bytes(pk, &point_pos[s], sizeof(glm::vec3));
+                pk = hmix(pk, std::hash<float>()(point_far[s]));
+                if (cache_ok && pk == point_key_[s * 6 + f]) continue;
+                point_key_[s * 6 + f] = cache_ok ? pk : 0;
                 glNamedFramebufferTextureLayer(point_fbo_, GL_DEPTH_ATTACHMENT, point_cube_, 0, s * 6 + f);
                 glClear(GL_DEPTH_BUFFER_BIT);
-                glm::mat4 pv = pproj * glm::lookAt(point_pos[s], point_pos[s] + kFaceFwd[f], kFaceUp[f]);
                 point_shadow_.set("uLightVP", pv);
-                for (auto& [key, insts] : all_groups) {
-                    if (insts.empty()) continue;
-                    GLintptr at = upload(insts);
-                    glVertexArrayVertexBuffer(draw_vao_, 0, key.mesh->vbo(), 0, sizeof(Vertex));
-                    glVertexArrayElementBuffer(draw_vao_, key.mesh->ebo());
-                    glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
-                    glDrawElementsInstanced(GL_TRIANGLES, key.mesh->index_count(), GL_UNSIGNED_INT,
-                                            nullptr, (GLsizei)insts.size());
-                }
+                draw_gathered();
                 draw_skinned(point_shadow_);
             }
         }
     }
 
+    g_prof.mark("ssao");
     // pass 1b: SSAO -- full-res depth prepass, half-res AO, blur
     bool ssao_on = scene.env.value("ssao", true);
     float ssao_radius = scene.env.value("ssao_radius", 0.6f);
@@ -1300,6 +1404,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         s.set("uEnvIntensity", env_intensity);
     };
 
+    g_prof.mark("sky");
     // pass 2: HDR scene
     hdr_->bind();
     glClearColor(0, 0, 0, 1);
@@ -1314,9 +1419,11 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
 
+    g_prof.mark("pbr");
     glBindTextureUnit(0, csm_tex_);
     pbr_.use();
     set_env(pbr_);
+    pbr_.set("uShadowsOn", scene.env.value("shadows", true) ? 1 : 0);
     pbr_.set("uSkinned", 0);
     pbr_.set("uViewProj", view_proj);
     pbr_.set("uView", view);
@@ -1425,9 +1532,10 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         }
     }
 
-    // bloom
+    g_prof.mark("bloom");
     bloom_pass(w, h);
 
+    g_prof.mark("tonemap");
     // pass 3: tonemap + bloom composite  (-> LDR buffer when FXAA is on, else straight out)
     bool fxaa_on = scene.env.value("fxaa", true);
     glBindFramebuffer(GL_FRAMEBUFFER, fxaa_on ? ldr_->id() : target_fbo);
@@ -1449,6 +1557,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glBindVertexArray(empty_vao_);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
+    g_prof.mark("fxaa");
     // pass 4: FXAA edge smoothing on the tonemapped image
     if (fxaa_on) {
         glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
@@ -1462,7 +1571,9 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     }
     glEnable(GL_DEPTH_TEST);
 
+    g_prof.mark("ui");
     ui_pass(scene, w, h);
+    g_prof.frame_end();
 
     auto t1 = std::chrono::high_resolution_clock::now();
     stats_.cpu_ms = std::chrono::duration<float, std::milli>(t1 - t0).count();

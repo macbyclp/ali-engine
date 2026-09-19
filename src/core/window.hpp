@@ -14,6 +14,7 @@ public:
     bool should_close() const;
     void poll();
     void swap();
+    void set_vsync(bool on);
 
     int width() const { return w_; }
     int height() const { return h_; }

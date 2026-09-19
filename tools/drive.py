@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
+_DEFAULT_ENGINE = (ROOT / "build" / "Debug" / "engine.exe") if sys.platform == "win32" \
+    else ROOT / "build" / "engine"
+ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else _DEFAULT_ENGINE
 
 
 def main() -> int:

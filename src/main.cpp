@@ -19,7 +19,10 @@
 #include "render/renderer.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <vector>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -36,6 +39,7 @@ int main(int argc, char** argv) {
     std::string scene_path;
     std::string shot_path;      // --shot <png>: grab the window then quit
     int shot_frame = 45;
+    int bench_frames = 0;       // --bench <n>: vsync off, time n frames, print stats, quit
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -47,10 +51,12 @@ int main(int argc, char** argv) {
         else if (a == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
         else if (a == "--shot" && i + 1 < argc) shot_path = argv[++i];
         else if (a == "--shot-frame" && i + 1 < argc) shot_frame = std::stoi(argv[++i]);
+        else if (a == "--bench" && i + 1 < argc) bench_frames = std::stoi(argv[++i]);
     }
 
     if (editor_mode) headless = false;
     eng::Window window(width, height, "ali-engine", headless);
+    if (bench_frames > 0) window.set_vsync(false);
     eng::Renderer renderer(width, height);
     eng::Framebuffer offscreen(width, height, eng::ColorFormat::RGBA8, false);
     eng::Scene scene;
@@ -106,6 +112,9 @@ int main(int argc, char** argv) {
 
     double prev_time = glfwGetTime();
     long frame_no = 0;
+    std::vector<double> bench_ms;
+    double bench_cpu = 0;
+    if (bench_frames > 0) { bench_ms.reserve(bench_frames); ctx.sim_running = true; }
     while (!ctx.quit && !window.should_close()) {
         window.poll();
         ++frame_no;
@@ -174,6 +183,26 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
 
+        if (bench_frames > 0) {
+            double t_sub = glfwGetTime();
+            glFinish();
+            double t = glfwGetTime();
+            if (frame_no > 30) {   // skip warm-up
+                bench_ms.push_back((t - now) * 1000.0);
+                bench_cpu += (t_sub - now) * 1000.0;
+            }
+            if (frame_no >= bench_frames + 30) {
+                std::sort(bench_ms.begin(), bench_ms.end());
+                double sum = 0; for (double v : bench_ms) sum += v;
+                size_t n = bench_ms.size();
+                std::printf("BENCH frames=%zu avg=%.3fms fps=%.1f p50=%.3f p99=%.3f max=%.3f cpu_submit=%.3fms\n",
+                            n, sum / n, 1000.0 * n / sum, bench_ms[n / 2],
+                            bench_ms[size_t(n * 0.99)], bench_ms.back(), bench_cpu / n);
+                std::fflush(stdout);
+                ctx.quit = true;
+            }
+        }
+
         if (!shot_path.empty() && frame_no >= shot_frame && !headless) {
             if (eng::save_window_png(shot_path, window.width(), window.height()))
                 eng::log::info("shot saved: %s", shot_path.c_str());
@@ -183,6 +212,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    eng::log::info("shutting down");
+    eng::log::info("shutting down (frame %ld quit=%d close=%d)", frame_no, (int)ctx.quit, (int)window.should_close());
     return 0;
 }

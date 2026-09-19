@@ -3,7 +3,7 @@
 JSON protocol. Frames are PNGs from observe.screenshot; the GIF is assembled
 with Pillow.
 
-Usage: python tools/gen_media.py [engine.exe]
+Usage: python tools/gen_media.py [engine]
 """
 import json
 import subprocess
@@ -14,7 +14,9 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "Debug" / "engine.exe"
+_DEFAULT_ENGINE = (ROOT / "build" / "Debug" / "engine.exe") if sys.platform == "win32" \
+    else ROOT / "build" / "engine"
+ENGINE = Path(sys.argv[1]) if len(sys.argv) > 1 else _DEFAULT_ENGINE
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
 

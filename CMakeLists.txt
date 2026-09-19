@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(ali_engine CXX)
+project(ali_engine C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -99,6 +99,12 @@ add_executable(engine ${ENGINE_SOURCES})
 target_include_directories(engine PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
 target_link_libraries(engine PRIVATE
     glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glfw glad_gl46 Jolt imgui)
+
+# Linux: plugin host uses dlopen, miniaudio needs pthread/dl/m.
+if(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(engine PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()
 
 target_compile_definitions(engine PRIVATE
     ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}"

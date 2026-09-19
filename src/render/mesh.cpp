@@ -122,7 +122,8 @@ std::shared_ptr<Mesh> Mesh::sphere(int seg) {
         for (int x = 0; x < seg; ++x) {
             uint32_t i0 = y * (seg + 1) + x;
             uint32_t i1 = i0 + seg + 1;
-            idx.insert(idx.end(), {i0, i1, i0 + 1, i0 + 1, i1, i1 + 1});
+            // CCW seen from outside (u runs counter-clockwise about +y, v runs top to bottom)
+            idx.insert(idx.end(), {i0, i0 + 1, i1, i0 + 1, i1 + 1, i1});
         }
     }
     return std::make_shared<Mesh>(v, idx);

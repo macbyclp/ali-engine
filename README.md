@@ -101,6 +101,19 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 **Prebuilt:** grab [`ali-engine-v0.1.3-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)
 (≈2 MB, VC++ runtime bundled) and jump to *Run* below.
 
+**Build from source (Linux)** — CMake ≥ 3.24, GCC 11+ or Clang 14+, Ninja (optional), Python + `jinja2`
+
+```bash
+sudo apt install build-essential cmake ninja-build pkg-config git python3-jinja2 \
+  libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+  libxkbcommon-dev libwayland-dev wayland-protocols libasound2-dev
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+build/engine --headless --scene scenes/showcase.json
+```
+
+Headless rendering still needs an OpenGL 4.5 context; on a machine without a display use `xvfb-run`.
+
 **Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
 (for the GL loader codegen).
 

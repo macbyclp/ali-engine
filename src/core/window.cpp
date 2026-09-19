@@ -27,7 +27,8 @@ Window::Window(int width, int height, const std::string& title, bool headless)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+    // The debug context makes the driver validate every call; opt in with ALI_GL_DEBUG=1.
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, std::getenv("ALI_GL_DEBUG") ? GLFW_TRUE : GLFW_FALSE);
     if (headless) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     win_ = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
@@ -67,5 +68,6 @@ Window::~Window() {
 bool Window::should_close() const { return glfwWindowShouldClose(win_); }
 void Window::poll() { glfwPollEvents(); }
 void Window::swap() { glfwSwapBuffers(win_); }
+void Window::set_vsync(bool on) { glfwSwapInterval(on ? 1 : 0); }
 
 } // namespace eng

@@ -2,6 +2,7 @@
 #include "editor/glass.hpp"
 #include "editor/theme.hpp"
 #include "core/log.hpp"
+#include "scene/transform_system.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -631,7 +632,25 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
         auto& cam = ctx.scene.camera();
         glm::mat4 view = cam.view();
         glm::mat4 proj = cam.proj(win_h_ ? float(win_w_) / win_h_ : 1.0f);
-        glm::mat4 before = t->matrix();
+        // The gizmo lives in world space; Transform is local to the parent. Manipulate the
+        // world matrix, then convert each result back through the parent's inverse.
+        auto world_of = [&](entt::entity ent, const Transform& tr) {
+            auto* w = ctx.scene.registry.try_get<WorldTransform>(ent);
+            return w ? w->matrix : tr.matrix();
+        };
+        auto parent_world_inv = [&](entt::entity ent, const Transform& tr) {
+            auto* h = ctx.scene.registry.try_get<Hierarchy>(ent);
+            if (!h || h->parent_name.empty() || ctx.scene.find(h->parent_name) == entt::null)
+                return glm::mat4(1.0f);
+            return glm::inverse(world_of(ent, tr) * glm::inverse(tr.matrix()));
+        };
+        auto set_from_world = [&](entt::entity ent, Transform& tr, const glm::mat4& world) {
+            glm::mat4 local = parent_world_inv(ent, tr) * world;
+            glm::vec3 ltr, lrot, lsc;
+            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(local), &ltr.x, &lrot.x, &lsc.x);
+            tr.position = ltr; tr.euler_deg = lrot; tr.scale = lsc;
+        };
+        glm::mat4 before = world_of(e, *t);
         glm::mat4 model = before;
         // snap step: per-axis for translate, fixed 15deg / 0.1 for rotate / scale
         static const float kTrSteps[] = {0.1f, 0.25f, 0.5f, 1.0f};
@@ -641,23 +660,15 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
         if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj),
                                  (ImGuizmo::OPERATION)gizmo_op_, (ImGuizmo::MODE)gizmo_mode_,
                                  glm::value_ptr(model), nullptr, snap)) {
-            glm::vec3 tr, rot, sc;
-            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(model), &tr.x, &rot.x, &sc.x);
-            t->position = tr; t->euler_deg = rot; t->scale = sc;
-
             // apply the same world-space delta to every other selected entity
             // (delta comes from the already-snapped primary, so snapping carries)
-            if (!multi_.empty()) {
-                glm::mat4 delta = model * glm::inverse(before);
-                for (const std::string& name : multi_) {
-                    entt::entity oe = ctx.scene.find(name);
-                    auto* ot = oe != entt::null ? ctx.scene.registry.try_get<Transform>(oe) : nullptr;
-                    if (!ot) continue;
-                    glm::mat4 nm = delta * ot->matrix();
-                    glm::vec3 otr, orot, osc;
-                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(nm), &otr.x, &orot.x, &osc.x);
-                    ot->position = otr; ot->euler_deg = orot; ot->scale = osc;
-                }
+            glm::mat4 delta = model * glm::inverse(before);
+            set_from_world(e, *t, model);
+            for (const std::string& name : multi_) {
+                entt::entity oe = ctx.scene.find(name);
+                auto* ot = oe != entt::null ? ctx.scene.registry.try_get<Transform>(oe) : nullptr;
+                if (!ot) continue;
+                set_from_world(oe, *ot, delta * world_of(oe, *ot));
             }
         }
     }
@@ -775,6 +786,93 @@ void Editor::panel_assets(CommandContext& ctx) {
     ImGui::End();
 }
 
+
+// ALI_EDITOR_SELFTEST=1: drive the real ImGui input path with synthetic mouse events and
+// report whether hover, orbit and gizmo-drag reach the editor. Prints "SELFTEST ..." lines.
+static void editor_selftest(CommandContext& ctx, int w, int h, std::string& selected,
+                            float& yaw, int gizmo_op, float* pivot, float& dist) {
+    static int f = 0;
+    static glm::vec2 start_px, axis_px;
+    static int axis_i = 0;
+    static glm::vec3 start_pos;
+    static float start_yaw;
+    ImGuiIO& io = ImGui::GetIO();
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    auto project = [&](glm::vec3 p) {
+        auto& cam = ctx.scene.camera();
+        glm::vec4 c = cam.proj(float(w) / h) * cam.view() * glm::vec4(p, 1);
+        c /= c.w;
+        return glm::vec2((c.x * 0.5f + 0.5f) * w, (0.5f - c.y * 0.5f) * h);
+    };
+    auto say = [&](const char* what) {
+        std::fprintf(stderr, "SELFTEST f=%d %s | hovered=%s wantMouse=%d gizmoOver=%d gizmoUsing=%d\n", f, what,
+                     g.HoveredWindow ? g.HoveredWindow->Name : "(none)", (int)io.WantCaptureMouse,
+                     (int)ImGuizmo::IsOver(), (int)ImGuizmo::IsUsing());
+    };
+    ++f;
+    if (f < 15) io.AddFocusEvent(true);   // a hidden/unfocused window makes ImGui drop the mouse
+    if (f == 20) { io.AddMousePosEvent(w * 0.5f, h * 0.45f); }
+    if (f == 22) say("hover centre of viewport");
+    if (f == 24) {   // orbit: right-drag
+        start_yaw = yaw;
+        io.AddMouseButtonEvent(1, true);
+    }
+    if (f > 24 && f <= 30) io.AddMousePosEvent(w * 0.5f + (f - 24) * 20.0f, h * 0.45f);
+    if (f == 31) {
+        io.AddMouseButtonEvent(1, false);
+        std::fprintf(stderr, "SELFTEST orbit: yaw %.1f -> %.1f  => %s\n", start_yaw, yaw,
+                     yaw != start_yaw ? "WORKS" : "BROKEN");
+    }
+    if (f == 33) {   // select first mesh entity, aim at its X-axis arrow
+        float best = 1e30f;   // the mesh nearest the screen centre
+        for (auto [e, t, mr] : ctx.scene.registry.view<Transform, MeshRenderer>().each()) {
+            auto* n = ctx.scene.registry.try_get<Name>(e);
+            if (!n) continue;
+            float d = glm::length(project(t.position) - glm::vec2(w * 0.5f, h * 0.5f));
+            if (d < best) { best = d; selected = n->value; start_pos = t.position; }
+        }
+        if (auto* w0 = ctx.scene.registry.try_get<WorldTransform>(ctx.scene.find(selected))) {
+            pivot[0] = w0->position.x; pivot[1] = w0->position.y; pivot[2] = w0->position.z;
+            dist = 9.0f;   // frame it so the gizmo sits mid-screen, clear of the panels
+        }
+        std::fprintf(stderr, "SELFTEST selected '%s' op=%d\n", selected.c_str(), gizmo_op);
+    }
+    if (f == 38) {
+        if (auto* w0 = ctx.scene.registry.try_get<WorldTransform>(ctx.scene.find(selected))) start_pos = w0->position;
+        start_px = project(start_pos);
+        // drag the axis that is longest on screen (a foreshortened one is hard to hit)
+        float bestlen = -1.0f; glm::vec2 d(1, 0);
+        for (int a = 0; a < 3; ++a) {
+            glm::vec3 ax(0); ax[a] = 1.0f;
+            glm::vec2 v = project(start_pos + ax) - start_px;
+            if (glm::length(v) > bestlen) { bestlen = glm::length(v); axis_i = a; d = glm::normalize(v); }
+        }
+        axis_px = d;
+        // the X arrow spans roughly 0.15..0.8 of the gizmo size from the centre
+        io.AddMousePosEvent(start_px.x + d.x * 60.0f, start_px.y + d.y * 60.0f);
+    }
+    if (f == 40) say("hover X arrow");
+    if (f == 41) io.AddMouseButtonEvent(0, true);
+    if (f > 41 && f <= 47)
+        io.AddMousePosEvent(start_px.x + axis_px.x * (60.0f + (f - 41) * 15.0f),
+                            start_px.y + axis_px.y * (60.0f + (f - 41) * 15.0f));
+    if (f == 46) say("during drag");
+    if (f == 49) {
+        io.AddMouseButtonEvent(0, false);
+        entt::entity e = ctx.scene.find(selected);
+        update_world_transforms(ctx.scene);
+        auto* t = e != entt::null ? ctx.scene.registry.try_get<WorldTransform>(e) : nullptr;
+        glm::vec3 now = t ? t->position : start_pos;
+        glm::vec3 d = now - start_pos;
+        int o1 = (axis_i + 1) % 3, o2 = (axis_i + 2) % 3;
+        bool ok = std::abs(d[axis_i]) > 0.01f && std::abs(d[o1]) < 0.02f && std::abs(d[o2]) < 0.02f;
+        std::fprintf(stderr, "SELFTEST gizmo drag axis=%c '%s' (world): (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)  => %s\n",
+                     "XYZ"[axis_i], selected.c_str(), start_pos.x, start_pos.y, start_pos.z, now.x, now.y, now.z,
+                     ok ? "WORKS (moved along one axis only)" : "BROKEN");
+    }
+    if (f == 52) { std::fprintf(stderr, "SELFTEST done\n"); ctx.quit = true; }
+}
+
 // ---------------- frame ----------------
 void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -788,11 +886,14 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     ImGui::Begin("##dockhost", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
-                 ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+                 ImGuiWindowFlags_NoBackground);
     ImGui::PopStyleVar(3);
     ImGuiID dock = ImGui::GetID("EditorDock");
     if (!layout_built_) { build_layout(); layout_built_ = true; }
-    ImGui::DockSpace(dock, ImVec2(0, 0), ImGuiDockNodeFlags_None);
+    // PassthruCentralNode: the empty centre must not swallow the mouse, otherwise
+    // orbit, click-to-pick and the gizmo (ImGuizmo requires "no window hovered") all die.
+    ImGui::DockSpace(dock, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
     ImGui::End();
 
     // keyboard shortcuts (only when no text field is focused)
@@ -867,6 +968,8 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     }
 
     commit_history(ctx);
+    if (std::getenv("ALI_EDITOR_SELFTEST"))
+        editor_selftest(ctx, win_w_, win_h_, selected_, cam_yaw_, gizmo_op_, pivot_, cam_dist_);
 }
 
 } // namespace eng

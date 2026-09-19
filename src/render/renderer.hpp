@@ -5,6 +5,7 @@
 #include "render/shader.hpp"
 #include "scene/scene.hpp"
 #include "ui/font.hpp"
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -43,6 +44,10 @@ private:
     int spot_atlas_size_ = 2048;
     unsigned point_fbo_ = 0, point_cube_ = 0;   // GL_TEXTURE_CUBE_MAP_ARRAY depth
     int point_shadow_size_ = 1024;
+
+    uint64_t csm_key_[kCascades] = {};        // shadow-map cache keys (0 = stale)
+    uint64_t spot_key_[kSpotShadows] = {};
+    uint64_t point_key_[kPointShadows * 6] = {};
 
     EnvMap env_;   // equirect HDR IBL, source path from scene.env["hdri"]
 
