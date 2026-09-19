@@ -168,6 +168,17 @@ int main(int argc, char** argv) {
             physics.sync(scene);
         }
 
+        // --shot reads the back buffer, so it has to happen before the swap
+        const bool want_shot = !shot_path.empty() && frame_no >= shot_frame && !headless;
+        auto grab_shot = [&]() {
+            if (!want_shot) return;
+            if (eng::save_window_png(shot_path, window.width(), window.height()))
+                eng::log::info("shot saved: %s", shot_path.c_str());
+            else
+                eng::log::error("shot failed: %s", shot_path.c_str());
+            ctx.quit = true;
+        };
+
         if (editor) {
             int W = window.width(), H = window.height();
             offscreen.resize(W, H);
@@ -175,9 +186,11 @@ int main(int argc, char** argv) {
             editor->background(offscreen.color_texture(), W, H);   // blit + frosted blur
             editor->draw(ctx, offscreen.color_texture(), W, H);    // glass panels over it
             editor->end_frame();
+            grab_shot();
             window.swap();
         } else if (!headless) {
             renderer.render(scene, 0, window.width(), window.height());
+            grab_shot();
             window.swap();
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -201,14 +214,6 @@ int main(int argc, char** argv) {
                 std::fflush(stdout);
                 ctx.quit = true;
             }
-        }
-
-        if (!shot_path.empty() && frame_no >= shot_frame && !headless) {
-            if (eng::save_window_png(shot_path, window.width(), window.height()))
-                eng::log::info("shot saved: %s", shot_path.c_str());
-            else
-                eng::log::error("shot failed: %s", shot_path.c_str());
-            ctx.quit = true;
         }
     }
 

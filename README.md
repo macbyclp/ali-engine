@@ -96,6 +96,15 @@ Everything is data. The scene is JSON. Behaviours are JSON. The control surface 
 
 ---
 
+## Language / Dil
+
+The editor is available in English and Turkish (Türkçe). It starts in the language of your
+system (`LANG=tr_TR.UTF-8` gives Turkish); force one with `ALI_LANG=tr` or `ALI_LANG=en`, or switch live
+from **Help → Language**. In-game UI text (`ui.add` / `ui.set`) is UTF-8 and renders the full
+Turkish alphabet (ğ Ğ ş Ş ı İ ç Ç ö Ö ü Ü), curly quotes, dashes, bullets and ellipsis.
+New editor strings go through `eng::i18n::L()` / `T()` (`src/core/i18n.cpp`); missing translations
+fall back to English.
+
 ## Quick start
 
 **Prebuilt:** grab [`ali-engine-v0.1.3-win64.zip`](https://github.com/macbyclp/ali-engine/releases/latest)

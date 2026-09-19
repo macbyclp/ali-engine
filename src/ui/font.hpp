@@ -2,11 +2,13 @@
 #include "render/gl.hpp"
 #include <glm/glm.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace eng {
 
-// A baked bitmap font atlas (ASCII 32..126) from a TTF via stb_truetype.
+// A baked bitmap font atlas from a TTF via stb_truetype. Text is UTF-8. Covers Basic Latin,
+// Latin-1, Latin Extended-A (Turkish: ğ Ğ ş Ş ı İ ç ö ü), typographic punctuation and '₺'.
 class Font {
 public:
     struct Glyph { float x0, y0, x1, y1; float u0, v0, u1, v1; float advance; };
@@ -27,8 +29,8 @@ private:
     unsigned tex_ = 0;
     float pixel_h_ = 32.0f;
     float line_h_ = 32.0f;
-    Glyph glyphs_[95]{};
-    int atlas_w_ = 512, atlas_h_ = 512;
+    std::unordered_map<unsigned, Glyph> glyphs_;   // by Unicode code point
+    int atlas_w_ = 1024, atlas_h_ = 1024;
 };
 
 } // namespace eng

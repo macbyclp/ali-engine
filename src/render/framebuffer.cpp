@@ -92,7 +92,7 @@ bool save_window_png(const std::string& path, int w, int h) {
     std::vector<unsigned char> px(size_t(w) * h * 4);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadBuffer(GL_FRONT);
+    glReadBuffer(GL_BACK);   // callers grab before the swap
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
     stbi_flip_vertically_on_write(1);
     int ok = stbi_write_png(path.c_str(), w, h, 4, px.data(), w * 4);
