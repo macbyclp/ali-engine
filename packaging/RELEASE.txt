@@ -27,6 +27,14 @@ Drive it from Python (needs Python 3 + Pillow for the GIF helper):
   python tools/drive.py
 
 
+Safety defaults
+---------------
+The command channel can only write files under the folder the engine was
+started in (engine.exe --write-root <dir> to change it), and plugin.load is
+disabled unless you start with --allow-plugin-load. engine.exe --version prints
+the version.
+
+
 Talking to the engine
 ---------------------
 The engine reads one JSON request per line on stdin and answers one JSON
@@ -53,7 +61,7 @@ Editor
   Viewport:  RMB drag = orbit,  MMB drag = pan,  wheel = zoom
   Select:    click in Hierarchy;  Ctrl+click adds to the selection (gizmo moves
              all of them together)
-  Undo/redo: Ctrl+Z / Ctrl+Shift+Z  (full-scene snapshots)
+  Undo/redo: Ctrl+Z / Ctrl+Shift+Z  (per-entity delta history)
   Toolbar:   Play toggles physics + behaviours + animation
   Designer / Graph toggle (top-right)  ->  Graph mode is the Blueprint node editor.
     Select an entity, right-click to add nodes, drag pins to wire, Compile.

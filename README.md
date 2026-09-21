@@ -7,9 +7,9 @@ An AI agent builds and runs the whole game over a JSON command stream.
 Humans get an Unreal-style editor and Blueprint-style visual scripting on top —
 same data model, no separate export step.
 
-`C++20` · `OpenGL 4.5` · `Windows`
+`C++20` · `OpenGL 4.5` · `Windows` · `Linux`
 
-[**Download v0.1.3 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
+[**Download v0.1.3 (Windows x64)**](https://github.com/macbyclp/ali-engine/releases/latest) · Linux: `bash packaging/pack-linux.sh 0.1.3` or `cmake --install build --component runtime` · [Command reference](docs/AI-PROTOCOL.md) · [Architecture](ARCHITECTURE.md)
 
 ![showcase](media/showcase.gif)
 
@@ -27,7 +27,7 @@ rules, step the simulation, and **get the rendered frame back as an image** to r
 about — then iterate.
 
 Everything is data. The scene is JSON. Behaviours are JSON. The control surface is
-~75 line-delimited JSON commands on stdin/stdout. That makes the engine:
+~87 line-delimited JSON commands (`commands.list` enumerates them) on stdin/stdout. That makes the engine:
 
 - **AI-native** — a model emits commands, reads back screenshots and structured state
 - **Deterministic** — same scene + same commands → same result; fixed-step simulation
@@ -121,7 +121,9 @@ cmake --build build
 build/engine --headless --scene scenes/showcase.json
 ```
 
-Headless rendering still needs an OpenGL 4.5 context; on a machine without a display use `xvfb-run`.
+Headless rendering needs an OpenGL 4.5 context. With no `DISPLAY` the engine opens a display-less **EGL** context by itself (no X server, no xvfb); if EGL is unavailable it falls back to a hidden window, and then `xvfb-run` is the way to run on a server. `engine --version` prints the version.
+
+Safety: the JSON channel can only write files under the working directory the engine was started in (`--write-root <dir>` to change it), and `plugin.load` is disabled unless you pass `--allow-plugin-load`. See `docs/AI-PROTOCOL.md`.
 
 **Build from source** — CMake ≥ 3.24, Visual Studio 2022 (Desktop C++ workload), Python + `jinja2`
 (for the GL loader codegen).

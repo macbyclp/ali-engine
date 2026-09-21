@@ -3,7 +3,8 @@
 ## Vizyon
 Yapay zekanın **uçtan uca yönetebildiği** 3B oyun motoru. Unreal'de bir insanın editörle
 yaptığı her şeyi (sahne kurma, obje yerleştirme, malzeme ayarı, ışık, kamera, oynanış
-mantığı) bir AI ajanı **makine arayüzü** üzerinden yapar. GUI editör yok.
+mantığı) bir AI ajanı **makine arayüzü** üzerinden yapar. İnsanlar için ImGui tabanlı bir
+editör de vardır (`src/editor/`); editör de AI ile aynı `eng::dispatch` komut yolunu kullanır.
 
 Bunun için AI'ın üç şeye ihtiyacı var:
 1. **Yazma** — sahneyi ve davranışları deterministik, denetlenebilir biçimde değiştirmek
@@ -21,7 +22,7 @@ Bunun için AI'ın üç şeye ihtiyacı var:
 | Sahne/veri | nlohmann/json | AI'ın yazması/okuması kolay |
 | Model | cgltf + stb_image | glTF 2.0, hafif |
 | Fizik | Jolt Physics | Modern, deterministik, AAA'de kullanılıyor |
-| Kontrol | JSON-RPC 2.0 / TCP soket + dosya izleme | Dil-bağımsız, denetlenebilir, hem canlı hem dosya-tabanlı |
+| Kontrol | Satır-bazlı JSON (stdin/stdout) + dosya izleme | Dil-bağımsız, denetlenebilir, hem canlı hem dosya-tabanlı |
 
 ## Kontrol yüzeyi (AI ↔ motor)
 İki yol, ikisi de aynı komut setini kullanır:
@@ -29,8 +30,8 @@ Bunun için AI'ın üç şeye ihtiyacı var:
 **A. Sahne dosyaları + hot-reload.** `scenes/*.json` gerçeğin kaynağı. AI dosyayı yazar,
 motor değişikliği izler ve anında yeniden yükler. Versiyonlanabilir, diff'lenebilir, geri alınabilir.
 
-**B. Canlı komut soketi.** Motor `127.0.0.1:8787` üzerinde JSON-RPC sunucusu. AI ajanı
-çalışırken komut yollar:
+**B. Canlı komut kanalı.** Motor stdin/stdout üzerinde satır-bazlı JSON komutları okur
+(`src/aicontrol/channel.cpp`; soket yok). AI ajanı çalışırken komut yollar:
 - `scene.load`, `scene.save`, `scene.reset`
 - `entity.spawn` / `entity.destroy` / `entity.list`
 - `entity.setTransform` / `entity.setMaterial` / `entity.setParent`
@@ -42,7 +43,7 @@ motor değişikliği izler ve anında yeniden yükler. Versiyonlanabilir, diff'l
 
 ## Katmanlar
 ```
-  ai-control/     JSON-RPC sunucu, dosya izleyici, komut yönlendirici
+  ai-control/     stdin/stdout komut kanalı, dosya izleyici, komut yönlendirici
   scene/          JSON <-> ECS serileştirme, sahne graf, prefab
   ecs/            EnTT dünyası, component tanımları, sistemler
   render/         GL45 backend, PBR, gölge, IBL, HDR, headless FBO -> PNG
@@ -70,4 +71,18 @@ motor değişikliği izler ve anında yeniden yükler. Versiyonlanabilir, diff'l
 - **Headless her zaman çalışır.** Pencere olmadan render + screenshot alınabilir (CI, AI döngüsü).
 - **Deterministik.** Aynı sahne + aynı komutlar = aynı sonuç. Sabit adımlı simülasyon.
 - **Her şey veri.** Kod dışı her durum JSON'a serileşir; AI onu üretebilir/denetleyebilir.
-- **Komut = tek giriş noktası.** Hot-reload de soket de aynı komut işleyicisine iner.
+- **Komut = tek giriş noktası.** Hot-reload de stdin kanalı da aynı komut işleyicisine iner.
+
+## Notlar: v0.1.3 sonrası yapısal değişiklikler
+- **Dönüş = kuaterniyon.** `Transform::rotation` (glm::quat) tek gerçek kaynaktır; Euler derece (`euler_deg()` /
+  `set_euler_deg()`, R = Rz·Ry·Rx) yalnızca bir görünümdür ve JSON/editör/AI protokolünde eski alan olarak sürer.
+  Fizik Jolt'un kuaterniyonunu doğrudan yazar (Euler'e dönüşüm yok).
+- **Komut tablosu.** `aicontrol/commands.cpp` artık bir `metot -> işleyici` tablosu (sıralı `std::map`);
+  `commands.list` bu tablodan üretilir. Eklentiler tabloda olmayan metotlarda devreye girer.
+- **Dünya transformu önbelleği.** `WorldTransform`, kendini üreten yerel pozu + ebeveyn sürümünü saklar;
+  `update_world_transforms()` yalnızca girdisi değişen matrisi yeniden kurar (dirty bayrağı yok).
+- **Artımlı mesh çözümleme.** `Scene::resolve_gpu_mesh(entity)`; tüm sahne yalnızca yüklemede çözülür.
+- **Delta undo.** `editor/history.*`: entity başına önce/sonra JSON, hareket bittiğinde diff; boşta kare maliyeti 0.
+- **Saydam geçiş.** `MeshRenderer::alpha < 1` -> opak geçişten sonra arkadan öne sıralı blend; gölge/SSAO dışı.
+- **Ekransız headless.** `core/window.cpp`: dlopen'lı EGL (pbuffer) bağlamı; olmazsa gizli GLFW penceresi.
+- **Güvenlik.** Yazma kökü + `plugin.load` bayrağı (bkz. docs/AI-PROTOCOL.md).

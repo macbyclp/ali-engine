@@ -7,7 +7,25 @@ Loglar stderr'e gider, stdout temiz kalır.
 ```
 engine --headless --scene scenes/demo.json
 engine --scene scenes/demo.json            # görünür pencere + aynı protokol
+engine --version
 ```
+`--headless`, ortamda `DISPLAY`/`WAYLAND_DISPLAY` yoksa (veya `ALI_HEADLESS=egl` ile) **ekransız EGL**
+bağlamı açar: X sunucusu / xvfb gerekmez. EGL kurulamazsa gizli bir GLFW penceresine düşer (X ister;
+o durumda `xvfb-run` kullan). `ALI_HEADLESS=glfw` eski gizli-pencere yolunu zorlar.
+
+## Güvenlik modeli (komut kanalı)
+Kanaldan gelen komutlar keyfi dosya yazamaz ve keyfi kod yükleyemez:
+
+- **Yazma kökü.** Motorun **yazdığı** her dosya (`scene.save`, `prefab.save`, `observe.screenshot|view|depth|segment`,
+  `record.start`) motorun başlatıldığı çalışma dizini altında olmalıdır (`..` ve symlink çözülür). Dışı
+  `permission denied: path outside write root (...)` ile reddedilir. Kökü genişletmek için:
+  `engine --write-root <dizin>`. Okuma komutları (`scene.load`, `prefab.instantiate`, `record.play`) kısıtlı değildir.
+- **`plugin.load` varsayılan kapalıdır.** Açmak için `engine --allow-plugin-load`; aksi halde
+  `permission denied: plugin.load is disabled`. (`plugins/` klasörü açılışta yine taranır -- o, komut kanalı değil
+  sizin çalıştırma dizininizdir.) Durum `commands.list` içinde `plugin_load_enabled` olarak görünür.
+- Ajan akışları: ekran görüntüsü/sahne yollarını çalışma dizininin **içinde** ver (ör. `screenshots/x.png`);
+  proje dışına yazan bir akış `--write-root` ile başlatılmalıdır. `tools/drive.py` ve `tools/gen_media.py`
+  motoru repo kökünde çalıştırır, zaten uyumludur.
 
 ## İstek
 ```json
@@ -31,18 +49,19 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | Metot | params | sonuç |
 | --- | --- | --- |
 | `ping` | — | `{pong:true}` |
+| `commands.list` | — | `{commands:[...sıralı], count, plugin_load_enabled, write_root}` — çekirdeğin bildiği tüm metotlar (eklenti metotları için `plugin.list`) |
 | `scene.load` | `{path}` | `{entities:N}` |
 | `scene.save` | `{path?}` | `{path}` |
 | `scene.reset` | — | — |
 | `scene.state` | — | tüm sahne (JSON) |
 | `entity.list` | — | `{names:[...]}` |
-| `entity.spawn` | `{name?, primitive?, gltf_path?, build?, position?, rotation?, scale?, <material>, body?}` | `{name}` |
+| `entity.spawn` | `{name?, primitive?, gltf_path?, build?, position?, rotation?, rotation_quat?, scale?, <material>, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
 | `mesh.build` | `{name, build:[step,...]}` | `{triangles}` — prosedürel mesh / CSG (aşağı bkz.) |
 | `terrain.create` | `{name?, size?, resolution?, height?, octaves?, frequency?, seed?, <material>}` | `{name, resolution}` |
 | `terrain.sculpt` | `{name, at:[x,_,z], radius?, strength?, mode?}` — mode: `raise`\|`lower`\|`smooth`\|`flatten` | — |
 | `terrain.height` | `{name, at:[x,_,z]}` | `{height}` — o noktadaki zemin yüksekliği |
-| `entity.setTransform` | `{name, position?, rotation?, scale?}` | — (fizik gövdesi de ışınlanır) |
+| `entity.setTransform` | `{name, position?, rotation?, rotation_quat?, scale?}` | — (fizik gövdesi de ışınlanır). `rotation` = Euler derece (XYZ), `rotation_quat` = `[x,y,z,w]` (verilirse o kazanır) |
 | `entity.setMaterial` | `{name, <material>}` | — |
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
 | `entity.setParent` | `{name, parent}` (boş parent = ayır) | — |
@@ -65,6 +84,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `audio.play` | `{file, volume?, loop?, spatial?, position?, bus?, stream?, pitch?, fade_in?}` | `{handle}` — `stream:true` müzik için (baştan sona decode yok) |
 | `audio.set` | `{handle, volume?, pitch?, position?}` | — |
 | `audio.stop` | `{handle, fade_out?}` veya `{bus}` | — |
+| `audio.list` | — | `{sounds:[handle], count, device}` — çalan sesler (biten tek-atımlık sesler otomatik temizlenir) |
 | `audio.bus` | `{bus, volume?}` — mikser bus'u (`master` = ana çıkış) | `{bus, volume}` |
 | `render.set` | `{ssao?, ssao_radius?, ssao_intensity?, ...}` — sahne `environment` bloğuna yazar | `{environment}` |
 | `render.get` | — | `{environment}` |
@@ -85,6 +105,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `checkpoint.save` / `checkpoint.restore` | `{name?}` | — (sahne + state anlık görüntüsü) |
 | `light.set` / `light.add` | `{name?, type?, color?, intensity?, direction?, position?, range?, inner_deg?, outer_deg?}` | `{name}` |
 | `camera.set` | `{position?, target?, fov_deg?}` | — |
+| `camera.follow` | `{target?, offset?, look?, stiffness?}` (target `""` clears) | `{follow}` |
 | `camera.get` | — | `{position, target, fov_deg}` |
 | `world.step` | `{dt?, steps?, substeps?}` | `{stepped, dt}` — simülasyonu N adım ilerlet |
 | `physics.play` / `physics.pause` | — | — (her frame otomatik adım) |
@@ -102,7 +123,7 @@ engine --scene scenes/demo.json            # görünür pencere + aynı protokol
 | `observe.depth` | `{path?, width?, height?, near?, far?}` | `{path, width, height, near, far}` — lineer derinlik greyscale (yakın = beyaz); near/far verilmezse görünür geometriye oturtulur |
 | `observe.describe` | — | `{camera:{position,forward}, entities:[{name,kind,position,size,on_screen}], relations:[{a,rel,b}]}` — LLM için sahne özeti |
 | `observe.screenshot` | `{path?, width?, height?}` | `{path, width, height}` |
-| `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms}` |
+| `observe.stats` | — | `{entities, visible, culled, draw_calls, instances, groups, cpu_ms, transparent, lights_dropped, shadows_dropped, active_sounds, world_recomputed, world_calls}` — `lights_dropped`: 16 ışık sınırını aşanlar (en düşük öncelikli), `shadows_dropped`: gölge kotasını (4 spot / 2 nokta) aşanlar |
 | `record.start` | `{path?}` | `{path}` — bundan sonraki her istek satırını dosyaya yazar |
 | `record.stop` | — | `{path}` |
 | `record.play` | `{path}` | `{played, failed}` — kaydı yeniden oynatır (fizik dünyası önce sıfırlanır → deterministik) |
@@ -130,9 +151,17 @@ Aksiyonlar: `log`, `setVelocity {velocity}`, `move {velocity, keep_y?}` (Y'yi bo
 Kurallara `"if": {"key":"phase","eq":"combat"}` (eq/ne/gt/gte/lt/lte/exists) koşulu eklenebilir.
 Kurallar `world.step` ve `physics.play` sırasında her adımda değerlendirilir.
 
+### Dönüş (rotation)
+Motor içinde yönelimi **kuaterniyon** olarak tutar (fizik çözücüsünden Euler'e dönüşüm yoktur → gimbal/işaret
+sıçraması yok). Sahne JSON'unda eski `transform.rotation` (Euler derece, XYZ; R = Rz·Ry·Rx) alanı **hep**
+okunur ve yazılır -- eski sahneler ve istemciler aynen çalışır. Yazarken ek olarak, kimlik değilse,
+kesin değer olarak `transform.rotation_quat` (`[x,y,z,w]`) da yazılır; ikisi de varsa quat kazanır.
+
 ### Materyal (`<material>` alanları)
-`{ base_color:[r,g,b], metallic, roughness, emissive:[r,g,b], uv_scale:[u,v],
+`{ base_color:[r,g,b], alpha (0..1, varsayılan 1), metallic, roughness, emissive:[r,g,b], uv_scale:[u,v],
 base_color_map, normal_map, metallic_roughness_map, emissive_map, ao_map }`.
+`alpha < 1` olan mesh'ler opak geçişten sonra **sıralı (arkadan öne) blend geçişinde** çizilir; gölge
+düşürmez ve SSAO'ya girmez (skinned mesh'ler alpha'yı yok sayar). Opak yol (alpha = 1) hiç değişmez.
 Doku anahtarı = dosya yolu **veya** `builtin:<checker|grid|uv|normal|bumps>`.
 glTF yüklenince dosyanın materyali otomatik gelir; verdiğin alanlar üzerine yazar.
 

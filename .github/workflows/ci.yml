@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xvfb libx11-dev libegl1 libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libgl1-mesa-dev libgl1-mesa-dri libasound2-dev
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build (engine + tests)
+        run: cmake --build build
+      - name: Tests (ctest)
+        # protocol tests run display-less (EGL via Mesa llvmpipe); editor self-tests use xvfb
+        run: xvfb-run -a ctest --test-dir build --output-on-failure

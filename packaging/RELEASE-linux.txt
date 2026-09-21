@@ -1,0 +1,39 @@
+ali-engine v0.1.3  (Linux x64)
+==============================
+
+An AI-native 3D game engine. An AI agent builds and runs a whole game over a
+JSON command stream; humans get an editor and Blueprint visual scripting on top.
+
+Repo:  https://github.com/macbyclp/ali-engine
+
+
+Requirements
+------------
+* 64-bit Linux, glibc 2.35+ (built on Ubuntu 24.04)
+* A GPU/driver with OpenGL 4.5 (Mesa >= 21, or the NVIDIA proprietary driver)
+* libX11 / libGL / libasound at runtime (standard on desktop distros)
+
+
+Run
+---
+  ./engine --headless --scene scenes/showcase.json   # AI-driving mode
+  ./engine --scene scenes/showcase.json --play       # visible window
+  ./engine --editor --scene scenes/showcase.json     # editor
+  ./engine --version
+
+Headless needs no display server: with no $DISPLAY the engine opens a
+display-less EGL context by itself. If EGL is unavailable it falls back to a
+hidden window (then use xvfb-run on a server).
+
+  python3 tools/drive.py                             # scripted demo
+
+
+Safety defaults
+---------------
+The command channel only writes files under the folder the engine was started
+in (--write-root <dir> to change it); plugin.load is disabled unless you start
+with --allow-plugin-load.
+
+Full command reference: docs/AI-PROTOCOL.md  (also: {"method":"commands.list"})
+
+License: MIT  (see LICENSE)

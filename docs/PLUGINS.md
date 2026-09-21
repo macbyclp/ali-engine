@@ -7,7 +7,8 @@ A plugin extends the engine at runtime. It can:
 - **react to load/unload** (`on_load` / `on_unload`)
 
 The engine looks for shared libraries in a `plugins/` folder next to the binary
-at startup, and `plugin.load {path}` loads one on demand. `plugin.list` reports
+at startup, and `plugin.load {path}` loads one on demand -- but only when the engine was started
+with `--allow-plugin-load` (off by default: a loaded plugin is native code running in the engine). `plugin.list` reports
 what is loaded.
 
 ## The interface
