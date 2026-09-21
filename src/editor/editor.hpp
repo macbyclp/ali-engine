@@ -1,4 +1,5 @@
 #pragma once
+#include "editor/history.hpp"
 #include "aicontrol/commands.hpp"
 #include "editor/blueprint.hpp"
 #include "editor/glass.hpp"
@@ -9,6 +10,9 @@
 struct GLFWwindow;
 
 namespace eng {
+
+// Set to non-zero by headless self-tests; main() returns it as the process exit code.
+inline int g_exit_code = 0;
 
 // Dear ImGui editor. Layout after Unreal's UMG editor; visual language is Apple
 // liquid-glass -- the 3D scene is the full-window backdrop, panels are frosted
@@ -29,6 +33,12 @@ public:
 
     void wanted_viewport(int& w, int& h) const { w = vp_w_; h = vp_h_; }
     bool wants_play() const { return play_; }
+    // Self-tests ask main() to grab the finished window (scene + editor UI) after end_frame().
+    std::string take_shot_request() { std::string s; s.swap(shot_request_); return s; }
+    // Call right after begin_frame(), BEFORE deciding whether to step the simulation: on a Play
+    // edge it snapshots the scene (so the snapshot is the true pre-Play state, not one
+    // physics step later), on a Stop edge it restores it and unbinds virtual input.
+    void sync_play_input(CommandContext&);
 
 private:
     GLFWwindow* window_;
@@ -36,9 +46,14 @@ private:
     std::vector<std::string> multi_;       // additional selected entities
     std::string selected_anim_;   // entity whose animation the timeline shows
 
-    // undo/redo: full-scene JSON snapshots, committed once an edit gesture ends
-    std::vector<std::string> undo_, redo_;
-    std::string hist_snap_;
+    // undo/redo: delta history (per-entity before/after, see history.hpp), committed once
+    // an edit gesture ends -- never a full-scene copy per frame
+    SceneHistory history_;
+    bool hist_dirty_ = false;          // something may have changed since the last commit
+    unsigned long hist_cmd_seq_ = 0;   // CommandContext::command_seq at the last commit
+    bool hist_prev_play_ = false;
+    bool hist_init_ = false;
+    std::string shot_request_;
     void commit_history(CommandContext&);
     void do_undo(CommandContext&);
     void do_redo(CommandContext&);
@@ -90,7 +105,7 @@ private:
     void update_orbit_camera(CommandContext&);
     void viewport_pick(CommandContext&);        // click-to-select in Designer mode
     void focus_selected(CommandContext&);       // F: frame the selection
-    void sync_play_input(CommandContext&);      // bind/unbind scene input on Play
+    void playstop_selftest(CommandContext&);    // ALI_PLAYSTOP_SELFTEST=1
     void run_console(CommandContext&, const std::string& line);
     void spawn(CommandContext&, const char* primitive);
 };

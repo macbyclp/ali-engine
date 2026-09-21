@@ -1,5 +1,6 @@
 #include "audio/audio.hpp"
 #include "core/log.hpp"
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 
@@ -108,6 +109,24 @@ void AudioEngine::stop(uint32_t h, float fade_out_ms) {
     delete it->second;
     p_->sounds.erase(it);
     p_->sound_bus.erase(h);
+}
+void AudioEngine::update() {
+    if (!p_->ready) return;
+    for (auto it = p_->sounds.begin(); it != p_->sounds.end();) {
+        if (ma_sound_at_end(it->second)) {
+            ma_sound_uninit(it->second);
+            delete it->second;
+            p_->sound_bus.erase(it->first);
+            it = p_->sounds.erase(it);
+        } else ++it;
+    }
+}
+size_t AudioEngine::active_count() const { return p_->sounds.size(); }
+std::vector<uint32_t> AudioEngine::active_handles() const {
+    std::vector<uint32_t> v;
+    for (auto& [h, s] : p_->sounds) v.push_back(h);
+    std::sort(v.begin(), v.end());
+    return v;
 }
 void AudioEngine::set_listener(const glm::vec3& pos, const glm::vec3& fwd) {
     if (!p_->ready) return;

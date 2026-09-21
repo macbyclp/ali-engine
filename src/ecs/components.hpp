@@ -5,7 +5,11 @@
 #include "render/mesh.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <cmath>
+#include <entt/entt.hpp>
 #include <nlohmann/json.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -27,22 +31,76 @@ struct Hierarchy {
 struct WorldTransform {
     glm::mat4 matrix{1.0f};
     glm::vec3 position{0.0f};
+
+    // cache bookkeeping owned by update_world_transforms(): the inputs `matrix` was built from
+    glm::vec3 k_pos{0.0f};
+    glm::quat k_rot{1, 0, 0, 0};
+    glm::vec3 k_scale{1.0f};
+    entt::entity parent = entt::null;
+    uint64_t parent_ver = 0;
+    uint64_t ver = 0;
+    uint64_t stamp = 0;
+    bool valid = false;
+    bool busy = false;
 };
 
+// Local transform. Orientation is stored as a quaternion (`rotation`) -- the single
+// source of truth, so physics / gizmos never round-trip through Euler angles and
+// never hit gimbal flips. Euler degrees (XYZ order, R = Rz*Ry*Rx -- the historic
+// convention of scene JSON, the editor and the AI protocol) are a *view* of it:
+// euler_deg() / set_euler_deg(). A cached Euler triple is kept for as long as
+// `rotation` is unchanged, so a value an author typed (e.g. y = 135) reads back
+// unchanged instead of being re-derived into an equivalent-but-different triple.
 struct Transform {
     glm::vec3 position{0};
-    glm::vec3 euler_deg{0};   // XYZ degrees
+    glm::quat rotation{1, 0, 0, 0};   // (w, x, y, z)
     glm::vec3 scale{1};
 
+    static glm::quat quat_from_euler_deg(const glm::vec3& e) {
+        glm::vec3 r = glm::radians(e);
+        return glm::angleAxis(r.z, glm::vec3(0, 0, 1)) * glm::angleAxis(r.y, glm::vec3(0, 1, 0)) *
+               glm::angleAxis(r.x, glm::vec3(1, 0, 0));
+    }
+    static glm::vec3 euler_deg_from_quat(const glm::quat& q) {
+        glm::mat3 m = glm::mat3_cast(q);   // m[col][row]; R = Rz*Ry*Rx
+        float sy = glm::clamp(-m[0][2], -1.0f, 1.0f);
+        float y = std::asin(sy), x, z;
+        if (std::abs(sy) < 0.99999f) {
+            x = std::atan2(m[1][2], m[2][2]);
+            z = std::atan2(m[0][1], m[0][0]);
+        } else {                                   // gimbal lock: fold z into x
+            z = 0.0f;
+            x = std::atan2(-m[2][1], m[1][1]);
+        }
+        return glm::degrees(glm::vec3(x, y, z)) + glm::vec3(0.0f);   // +0: no "-0" in JSON
+    }
+
+    glm::vec3 euler_deg() const {
+        if (!cache_valid_ || cache_q_ != rotation) {
+            cache_e_ = euler_deg_from_quat(rotation);
+            cache_q_ = rotation;
+            cache_valid_ = true;
+        }
+        return cache_e_;
+    }
+    void set_euler_deg(const glm::vec3& e) {
+        rotation = quat_from_euler_deg(e);
+        cache_e_ = e; cache_q_ = rotation; cache_valid_ = true;
+    }
+    void add_euler_deg(const glm::vec3& d) { set_euler_deg(euler_deg() + d); }
+    void set_rotation(const glm::quat& q) { rotation = glm::normalize(q); }
+
     glm::mat4 matrix() const {
-        glm::mat4 m(1.0f);
-        m = glm::translate(m, position);
-        m = glm::rotate(m, glm::radians(euler_deg.z), {0, 0, 1});
-        m = glm::rotate(m, glm::radians(euler_deg.y), {0, 1, 0});
-        m = glm::rotate(m, glm::radians(euler_deg.x), {1, 0, 0});
-        m = glm::scale(m, scale);
+        glm::mat4 m = glm::mat4_cast(rotation);
+        m[0] *= scale.x; m[1] *= scale.y; m[2] *= scale.z;
+        m[3] = glm::vec4(position, 1.0f);
         return m;
     }
+
+private:
+    mutable glm::vec3 cache_e_{0};
+    mutable glm::quat cache_q_{1, 0, 0, 0};
+    mutable bool cache_valid_ = false;
 };
 
 // Which primitive/asset to draw + its PBR material.
@@ -56,6 +114,7 @@ struct MeshRenderer {
     float metallic = 0.0f;
     float roughness = 0.8f;
     glm::vec3 emissive{0.0f};
+    float alpha = 1.0f;                  // < 1: drawn in the sorted, blended pass (no shadow / SSAO)
     glm::vec2 uv_scale{1.0f};
 
     std::string base_color_map;

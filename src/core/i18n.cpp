@@ -81,6 +81,7 @@ static const std::unordered_map<std::string, const char*>& turkish() {
     {"Rotate", "Döndür"},
     {"Rotation", "Dönüş"},
     {"Roughness", "Pürüzlülük"},
+    {"Alpha", "Saydamlık"},
     {"SCENES", "SAHNELER"},
     {"Save", "Kaydet"},
     {"Scale", "Ölçek"},

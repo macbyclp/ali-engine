@@ -163,6 +163,7 @@ out vec3 vAlbedo;
 out float vRough;
 out float vMetallic;
 out vec3 vEmissive;
+out float vAlpha;
 void main() {
     vec3 p = aPos;
     vec3 nrm = aNormal;
@@ -185,6 +186,7 @@ void main() {
     vRough = iAlbedoRough.a;
     vMetallic = iMetalUV.x;
     vEmissive = iEmissive.rgb;
+    vAlpha = iEmissive.a;   // material alpha (1 = opaque); only the blended pass reads it
     gl_Position = uViewProj * w;
 }
 )";
@@ -198,6 +200,7 @@ in vec3 vAlbedo;
 in float vRough;
 in float vMetallic;
 in vec3 vEmissive;
+in float vAlpha;
 out vec4 FragColor;
 
 uniform vec3 uCamPos;
@@ -293,7 +296,8 @@ float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
 
 void main() {
     vec3 albedo = vAlbedo;
-    if ((uHas & 1) != 0) albedo *= texture(uBaseColorMap, vUV).rgb;
+    float alpha = vAlpha;
+    if ((uHas & 1) != 0) { vec4 bc = texture(uBaseColorMap, vUV); albedo *= bc.rgb; alpha *= bc.a; }
     float metallic = vMetallic;
     float rough = vRough;
     if ((uHas & 4) != 0) { vec3 mr = texture(uMRMap, vUV).rgb; rough *= mr.g; metallic *= mr.b; }
@@ -360,7 +364,7 @@ void main() {
     vec3 emissive = vEmissive;
     if ((uHas & 8) != 0) emissive += texture(uEmissiveMap, vUV).rgb;
 
-    FragColor = vec4(ambient + direct + emissive, 1.0);
+    FragColor = vec4(ambient + direct + emissive, alpha);
 }
 )";
 
@@ -590,7 +594,7 @@ struct InstanceData {
     glm::mat4 model;
     glm::vec4 albedo_rough;
     glm::vec4 metal_uv;     // metallic, uvscale.x, uvscale.y, _
-    glm::vec4 emissive;
+    glm::vec4 emissive;     // rgb emissive, a = material alpha
 };
 
 struct MatKey {
@@ -1029,8 +1033,28 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     glm::vec3 point_pos[kPointShadows];
     float point_far[kPointShadows];
     int spot_used = 0, point_used = 0;
+    // Priority: with more than 16 punctual lights (or more shadow requests than atlas
+    // slots) the ones that matter most to the camera win -- influence = brightness * range^2
+    // fading with the distance from the camera to the light's sphere of influence.
+    struct LightRef { const WorldTransform* wt; const PunctualLight* pl; float score; };
+    std::vector<LightRef> ranked;
     for (auto [e, wt, pl] : scene.registry.view<WorldTransform, PunctualLight>().each()) {
-        if (lights.size() >= 16) break;
+        glm::vec3 c = pl.color * pl.intensity;
+        float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        float d = std::max(0.0f, glm::length(wt.position - cam.position) - pl.range);
+        ranked.push_back({&wt, &pl, lum * pl.range * pl.range / (1.0f + d * d)});
+    }
+    std::stable_sort(ranked.begin(), ranked.end(),
+                     [](const LightRef& a, const LightRef& b) { return a.score > b.score; });
+    for (const LightRef& lr : ranked) {
+        const WorldTransform& wt = *lr.wt;
+        const PunctualLight& pl = *lr.pl;
+        if (lights.size() >= 16) {
+            static bool warned = false;
+            if (!warned) { warned = true; eng::log::warn("light limit (16) reached; the lowest-priority lights are ignored"); }
+            stats_.lights_dropped++;
+            continue;
+        }
         GpuLight g;
         g.pos = glm::vec4(wt.position, pl.range);
         g.color = glm::vec4(pl.color * pl.intensity, pl.spot ? 1.0f : 0.0f);
@@ -1051,12 +1075,14 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
             pslot = point_used++;
             point_pos[pslot] = wt.position;
             point_far[pslot] = std::max(1.0f, pl.range);
+        } else if (pl.cast_shadows) {
+            stats_.shadows_dropped++;   // asked for a shadow, atlas / cube quota already used
         }
         light_slot.push_back(slot);
         light_point_slot.push_back(pslot);
     }
 
-    struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; };
+    struct Item { MeshRenderer* mr; Mesh* mesh; glm::mat4 model; glm::vec3 wc; float wr; bool transp; };
     std::vector<Item> items;
     struct SkinItem { MeshRenderer* mr; glm::mat4 model; const std::vector<glm::mat4>* joints; };
     std::vector<SkinItem> skinned;
@@ -1077,7 +1103,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
             sc += wt.position; ++nn;
             continue;
         }
-        items.push_back({&mr, mr.gpu.get(), model, wc, mr.gpu->bounds_radius() * ms});
+        items.push_back({&mr, mr.gpu.get(), model, wc, mr.gpu->bounds_radius() * ms, mr.alpha < 0.999f});
         sc += wt.position; ++nn;
     }
     stats_.entities = (int)items.size();
@@ -1095,6 +1121,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     auto tid = [](const std::shared_ptr<Texture>& t) { return t ? t->id() : 0u; };
     std::unordered_map<MatKey, std::vector<InstanceData>, MatKeyHash> visible_groups, all_groups;
     std::vector<InstanceData> item_inst(items.size());
+    std::vector<size_t> transparent;   // indices into items, drawn back-to-front after the opaque pass
     for (size_t i = 0; i < items.size(); ++i) {
         MeshRenderer& m = *items[i].mr;
         MatKey key{items[i].mesh, tid(m.t_base), tid(m.t_normal), tid(m.t_mr),
@@ -1102,8 +1129,12 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         InstanceData d{items[i].model,
                        glm::vec4(m.base_color, m.roughness),
                        glm::vec4(m.metallic, m.uv_scale.x, m.uv_scale.y, 0),
-                       glm::vec4(m.emissive, 0)};
+                       glm::vec4(m.emissive, m.alpha)};
         item_inst[i] = d;
+        if (items[i].transp) {          // blended pass: no shadows, no SSAO, drawn sorted
+            if (vis[i]) { transparent.push_back(i); stats_.visible++; }
+            continue;
+        }
         all_groups[key].push_back(d);
         if (vis[i]) { visible_groups[key].push_back(d); stats_.visible++; }
     }
@@ -1182,7 +1213,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
             if (!mesh) continue;
             InstanceData d{si.model, glm::vec4(si.mr->base_color, si.mr->roughness),
                            glm::vec4(si.mr->metallic, si.mr->uv_scale.x, si.mr->uv_scale.y, 0),
-                           glm::vec4(si.mr->emissive, 0)};
+                           glm::vec4(si.mr->emissive, 1.0f)};   // skinned meshes are always opaque
             std::vector<InstanceData> one{d};
             GLintptr at = upload(one);
             if (si.joints) {
@@ -1213,6 +1244,7 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
         for (auto& kv : face_groups) kv.second.clear();
         uint64_t h = 0;
         for (size_t i = 0; i < items.size(); ++i) {
+            if (items[i].transp) continue;   // blended meshes cast no shadow
             if (!f.sphere_in(items[i].wc, items[i].wr)) continue;
             if (lpos && glm::length(items[i].wc - *lpos) > range + items[i].wr) continue;
             face_groups[items[i].mesh].push_back(item_inst[i]);
@@ -1492,6 +1524,38 @@ void Renderer::render(Scene& scene, unsigned target_fbo, int w, int h) {
     }
     pbr_.set("uHas", 0);
     draw_skinned(pbr_);
+    // blended pass: sorted back-to-front, depth-tested but not depth-written, straight alpha
+    if (!transparent.empty()) {
+        std::sort(transparent.begin(), transparent.end(), [&](size_t a, size_t b) {
+            return glm::dot(items[a].wc - cam.position, items[a].wc - cam.position) >
+                   glm::dot(items[b].wc - cam.position, items[b].wc - cam.position);
+        });
+        glEnable(GL_BLEND);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        for (size_t i : transparent) {
+            MeshRenderer& m = *items[i].mr;
+            int has = 0;
+            if (m.t_base) { glBindTextureUnit(1, m.t_base->id()); has |= 1; }
+            if (m.t_normal) { glBindTextureUnit(2, m.t_normal->id()); has |= 2; }
+            if (m.t_mr) { glBindTextureUnit(3, m.t_mr->id()); has |= 4; }
+            if (m.t_emissive) { glBindTextureUnit(4, m.t_emissive->id()); has |= 8; }
+            if (m.t_ao) { glBindTextureUnit(5, m.t_ao->id()); has |= 16; }
+            pbr_.set("uHas", has);
+            std::vector<InstanceData> one{item_inst[i]};
+            GLintptr at = upload(one);
+            glVertexArrayVertexBuffer(draw_vao_, 0, items[i].mesh->vbo(), 0, sizeof(Vertex));
+            glVertexArrayElementBuffer(draw_vao_, items[i].mesh->ebo());
+            glVertexArrayVertexBuffer(draw_vao_, 1, instance_vbo_, at, sizeof(InstanceData));
+            glDrawElementsInstanced(GL_TRIANGLES, items[i].mesh->index_count(), GL_UNSIGNED_INT, nullptr, 1);
+            stats_.draw_calls++;
+            stats_.instances += 1;
+        }
+        pbr_.set("uHas", 0);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        stats_.transparent = (int)transparent.size();
+    }
     stats_.groups = (int)visible_groups.size();
     stats_.entities += (int)skinned.size();
     stats_.visible += (int)skinned.size();

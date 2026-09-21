@@ -164,8 +164,7 @@ void PhysicsSystem::step(Scene& scene, float dt, int substeps) {
         glm::vec3 pos; glm::quat rot;
         world_.get_transform(rb.handle, pos, rot);
         t.position = pos;
-        glm::vec3 eul = glm::eulerAngles(rot);
-        t.euler_deg = glm::degrees(eul);
+        t.set_rotation(rot);   // quaternion straight from Jolt -- no Euler round-trip
     }
 }
 
@@ -175,7 +174,7 @@ void PhysicsSystem::teleport(Scene& scene, const std::string& name) {
     auto* rb = scene.registry.try_get<RigidBody>(e);
     auto* t = scene.registry.try_get<Transform>(e);
     if (!rb || !t || !rb->registered) return;
-    world_.set_transform(rb->handle, t->position, glm::quat(glm::radians(t->euler_deg)));
+    world_.set_transform(rb->handle, t->position, t->rotation);
     world_.set_linear_velocity(rb->handle, glm::vec3(0));
 }
 
@@ -264,7 +263,7 @@ void PhysicsSystem::step_characters(Scene& scene, float dt) {
         // face travel direction
         glm::vec3 flat(want.x, 0, want.z);
         if (glm::length(flat) > 0.1f)
-            t.euler_deg.y = glm::degrees(std::atan2(flat.x, flat.z));
+            t.set_rotation(glm::angleAxis(std::atan2(flat.x, flat.z), glm::vec3(0, 1, 0)));   // yaw only
 
         cc.desired_velocity = glm::vec3(0);
     }

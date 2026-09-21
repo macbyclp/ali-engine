@@ -70,8 +70,8 @@ static void spawn_from_json(Scene& scene, const json& p) {
     for (const char* k : {"body", "behavior", "light", "particles", "ui", "character", "animation", "parent"})
         if (p.contains(k)) je[k] = p[k];
 
-    scene.load_entity(je);
-    scene.resolve_gpu_meshes();
+    entt::entity ne = scene.load_entity(je);
+    scene.resolve_gpu_mesh(ne);
 }
 
 void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState& gs,
@@ -107,7 +107,7 @@ void BehaviorSystem::run_actions(Scene& scene, PhysicsSystem& physics, GameState
             physics.impulse(self_name, scene, v3(a.value("impulse", json()), glm::vec3(0)));
         } else if (act == "spin" && t) {
             glm::vec3 axis = v3(a.value("axis", json()), glm::vec3(0, 1, 0));
-            t->euler_deg += axis * a.value("speed_deg", 90.0f) * dt;
+            t->add_euler_deg(axis * a.value("speed_deg", 90.0f) * dt);
             physics.teleport(scene, self_name);
         } else if (act == "moveToward" && t) {
             glm::vec3 target = v3(a.value("target", json()), t->position);

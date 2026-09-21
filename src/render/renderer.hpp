@@ -18,6 +18,9 @@ struct RenderStats {
     int draw_calls = 0;
     int instances = 0;
     int groups = 0;
+    int transparent = 0;      // meshes drawn in the blended pass (material alpha < 1)
+    int shadows_dropped = 0;  // shadow-casting punctual lights beyond the atlas quota (4 spot / 2 point)
+    int lights_dropped = 0;   // punctual lights beyond the 16-light cap
     float cpu_ms = 0.0f;
 };
 

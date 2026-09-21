@@ -15,6 +15,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -104,38 +105,41 @@ bool Editor::is_selected(const std::string& name) const {
 }
 
 void Editor::commit_history(CommandContext& ctx) {
-    ImGuiIO& io = ImGui::GetIO();
-    bool settled = !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing() &&
-                   !ImGui::IsMouseDown(ImGuiMouseButton_Left);
-    std::string cur = ctx.scene.to_json().dump();
-    if (hist_snap_.empty()) { hist_snap_ = cur; return; }
-    if (!settled || cur == hist_snap_) return;
-    undo_.push_back(hist_snap_);
-    if (undo_.size() > 64) undo_.erase(undo_.begin());
-    redo_.clear();
-    hist_snap_ = std::move(cur);
-    (void)io;
+    if (!hist_init_) {   // baseline = the scene as first seen, so the very first edit is undoable
+        hist_init_ = true;
+        hist_cmd_seq_ = ctx.command_seq;
+        history_.reset(ctx.scene);
+        return;
+    }
+    // Idle frames cost nothing: we only diff the scene when an edit may have happened
+    // (an item / gizmo / mouse press / key press / protocol command) and it has settled.
+    if (play_ || hist_prev_play_ != play_) {   // a Play session is not an edit: rebase on Stop
+        hist_prev_play_ = play_;
+        hist_dirty_ = false;
+        if (!play_) history_.reset(ctx.scene);
+        return;
+    }
+    bool active = ImGui::IsAnyItemActive() || ImGuizmo::IsUsing() ||
+                  ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    bool key = false;
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END && !key; ++k)
+        key = ImGui::IsKeyPressed((ImGuiKey)k, false);
+    if (active || key || ctx.command_seq != hist_cmd_seq_) hist_dirty_ = true;
+    if (!hist_dirty_ || active) return;
+    hist_dirty_ = false;
+    hist_cmd_seq_ = ctx.command_seq;
+    history_.commit(ctx.scene);
 }
 
 void Editor::do_undo(CommandContext& ctx) {
-    if (undo_.empty()) return;
-    redo_.push_back(ctx.scene.to_json().dump());
-    std::string s = std::move(undo_.back());
-    undo_.pop_back();
-    ctx.scene.load_json(json::parse(s));
+    if (!history_.undo(ctx.scene)) return;
     ctx.physics.sync(ctx.scene);
-    hist_snap_ = s;
     console_log_.push_back("[undo]");
 }
 
 void Editor::do_redo(CommandContext& ctx) {
-    if (redo_.empty()) return;
-    undo_.push_back(ctx.scene.to_json().dump());
-    std::string s = std::move(redo_.back());
-    redo_.pop_back();
-    ctx.scene.load_json(json::parse(s));
+    if (!history_.redo(ctx.scene)) return;
     ctx.physics.sync(ctx.scene);
-    hist_snap_ = s;
     console_log_.push_back("[redo]");
 }
 
@@ -263,6 +267,9 @@ void Editor::focus_selected(CommandContext& ctx) {
 void Editor::sync_play_input(CommandContext& ctx) {
     if (play_ == prev_play_) return;
     prev_play_ = play_;
+    // Snapshot on Play, restore on Stop so a test run does not permanently alter the scene.
+    dispatch(ctx, {{"method", play_ ? "checkpoint.save" : "checkpoint.restore"},
+                   {"params", {{"name", "__editor_play"}}}});
     if (!ctx.input) return;
     ctx.input->clear_virtual();
     if (play_)
@@ -327,8 +334,8 @@ void Editor::main_menu(CommandContext& ctx) {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu(eng::i18n::L("Edit"))) {
-            if (ImGui::MenuItem(eng::i18n::L("Undo"), "Ctrl+Z", false, !undo_.empty())) do_undo(ctx);
-            if (ImGui::MenuItem(eng::i18n::L("Redo"), "Ctrl+Shift+Z", false, !redo_.empty())) do_redo(ctx);
+            if (ImGui::MenuItem(eng::i18n::L("Undo"), "Ctrl+Z", false, history_.can_undo())) do_undo(ctx);
+            if (ImGui::MenuItem(eng::i18n::L("Redo"), "Ctrl+Shift+Z", false, history_.can_redo())) do_redo(ctx);
             ImGui::Separator();
             if (ImGui::MenuItem(eng::i18n::L("Delete Selected"), "Del", false, !selected_.empty())) {
                 for (auto& s : multi_) ctx.scene.destroy(s);
@@ -560,7 +567,12 @@ void Editor::panel_details(CommandContext& ctx) {
         if (sec("Transform", {"Location", "Rotation", "Scale"}) &&
             ImGui::CollapsingHeader(eng::i18n::L("Transform"), ImGuiTreeNodeFlags_DefaultOpen)) {
             drag3(eng::i18n::L("Location"), t->position);
-            drag3(eng::i18n::L("Rotation"), t->euler_deg, 0.5f);
+            {
+                glm::vec3 eul = t->euler_deg();
+                glm::vec3 before = eul;
+                drag3(eng::i18n::L("Rotation"), eul, 0.5f);
+                if (eul != before) t->set_euler_deg(eul);
+            }
             drag3(eng::i18n::L("Scale"), t->scale);
         }
     }
@@ -569,10 +581,11 @@ void Editor::panel_details(CommandContext& ctx) {
             ImGui::CollapsingHeader(eng::i18n::L("Mesh"), ImGuiTreeNodeFlags_DefaultOpen)) {
             const char* prims[] = {"cube", "sphere", "plane", "gltf", "skinned"};
             int cur = 0; for (int i = 0; i < 5; ++i) if (mr->primitive == prims[i]) cur = i;
-            if (ImGui::Combo(eng::i18n::L("Primitive"), &cur, prims, 5)) { mr->primitive = prims[cur]; ctx.scene.resolve_gpu_meshes(); }
+            if (ImGui::Combo(eng::i18n::L("Primitive"), &cur, prims, 5)) { mr->primitive = prims[cur]; ctx.scene.resolve_gpu_mesh(e); }
             ImGui::ColorEdit3(eng::i18n::L("Base Color"), &mr->base_color.x);
             ImGui::SliderFloat(eng::i18n::L("Metallic"), &mr->metallic, 0, 1);
             ImGui::SliderFloat(eng::i18n::L("Roughness"), &mr->roughness, 0.02f, 1);
+            ImGui::SliderFloat(eng::i18n::L("Alpha"), &mr->alpha, 0.0f, 1);
             ImGui::ColorEdit3(eng::i18n::L("Emissive"), &mr->emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
         }
     }
@@ -617,7 +630,7 @@ void Editor::panel_details(CommandContext& ctx) {
         }
     }
     ImGui::Separator();
-    if (ImGui::Button(eng::i18n::L("+ Mesh")) && !reg.all_of<MeshRenderer>(e)) { reg.emplace<MeshRenderer>(e); ctx.scene.resolve_gpu_meshes(); }
+    if (ImGui::Button(eng::i18n::L("+ Mesh")) && !reg.all_of<MeshRenderer>(e)) { reg.emplace<MeshRenderer>(e); ctx.scene.resolve_gpu_mesh(e); }
     ImGui::SameLine();
     if (ImGui::Button(eng::i18n::L("+ Body")) && !reg.all_of<RigidBody>(e)) { reg.emplace<RigidBody>(e); ctx.physics.sync(ctx.scene); }
     ImGui::End();
@@ -668,7 +681,7 @@ void Editor::panel_viewport(CommandContext& ctx, unsigned) {
             glm::mat4 local = parent_world_inv(ent, tr) * world;
             glm::vec3 ltr, lrot, lsc;
             ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(local), &ltr.x, &lrot.x, &lsc.x);
-            tr.position = ltr; tr.euler_deg = lrot; tr.scale = lsc;
+            tr.position = ltr; tr.set_euler_deg(lrot); tr.scale = lsc;
         };
         glm::mat4 before = world_of(e, *t);
         glm::mat4 model = before;
@@ -806,6 +819,79 @@ void Editor::panel_assets(CommandContext& ctx) {
     ImGui::End();
 }
 
+
+// ALI_PLAYSTOP_SELFTEST=1: exercises the real editor Play/Stop path and the delta undo
+// on the loaded scene (needs an entity named "ball" that falls under gravity).
+// Prints "PLAYSTOP ..." lines; a failure sets the process exit code to 1.
+void Editor::playstop_selftest(CommandContext& ctx) {
+    static int f = 0;
+    static std::string before;
+    static glm::vec3 start{0};
+    static bool ok = true;
+    ++f;
+    const char* shot_dir = std::getenv("ALI_PLAYSTOP_SHOTS");   // optional: save window PNGs there
+    auto shot = [&](const char* name) { if (shot_dir) shot_request_ = std::string(shot_dir) + "/" + name; };
+    auto ball = [&]() { return ctx.scene.find("ball"); };
+    auto pos = [&]() { return ctx.scene.registry.get<Transform>(ball()).position; };
+    auto check = [&](bool cond, const char* what) {
+        std::fprintf(stderr, "PLAYSTOP %s: %s\n", what, cond ? "ok" : "FAIL");
+        if (!cond) ok = false;
+    };
+    if (f == 5) {
+        if (ball() == entt::null) { std::fprintf(stderr, "PLAYSTOP FAIL: no 'ball' entity\n"); g_exit_code = 1; ctx.quit = true; return; }
+        before = ctx.scene.to_json().dump();
+        start = pos();
+        shot("editor_01_before_play.png");
+        play_ = true;
+    }
+    if (f == 30) shot("editor_02_playing.png");
+    if (f == 60) {
+        check(pos().y < start.y - 0.5f, "ball fell while playing");
+        check(ctx.scene.to_json().dump() != before, "scene changed during play");
+        play_ = false;
+    }
+    if (f == 64) shot("editor_03_after_stop.png");
+    if (f == 66) {
+        {
+            // entity order in the registry is not part of the scene: compare by name
+            auto by_name = [](json j) {
+                std::map<std::string, json> m;
+                for (auto& e : j["entities"]) m[e.value("name", std::string())] = e;
+                return m;
+            };
+            auto a = by_name(json::parse(before)), b = by_name(ctx.scene.to_json());
+            bool same = a == b && json::parse(before).value("environment", json()) ==
+                                      ctx.scene.to_json().value("environment", json());
+            if (!same)   // show the first differing entity to make failures actionable
+                for (auto& [k, v] : a)
+                    if (!b.count(k) || b[k] != v) {
+                        std::fprintf(stderr, "PLAYSTOP diff '%s':\n  before: %s\n  after : %s\n", k.c_str(),
+                                     v.dump().c_str(), b.count(k) ? b[k].dump().c_str() : "(missing)");
+                        break;
+                    }
+            check(same, "Stop restored the scene exactly");
+        }
+        check(!history_.can_undo(), "no undo steps recorded by the play session");
+        dispatch(ctx, {{"method", "entity.setTransform"},
+                       {"params", {{"name", "ball"}, {"position", {start.x + 7.0f, start.y, start.z}}}}});
+    }
+    if (f == 72) {
+        check(history_.can_undo(), "edit recorded as an undo step");
+        shot("editor_04_edited_ball_moved.png");
+        do_undo(ctx);
+    }
+    if (f == 76) {
+        check(glm::length(pos() - start) < 1e-4f, "undo restored the position");
+        shot("editor_05_after_undo.png");
+        do_redo(ctx);
+    }
+    if (f == 80) {
+        check(std::abs(pos().x - (start.x + 7.0f)) < 1e-4f, "redo re-applied the edit");
+        std::fprintf(stderr, "PLAYSTOP %s\n", ok ? "ALL PASS" : "FAILED");
+        if (!ok) g_exit_code = 1;
+        ctx.quit = true;
+    }
+}
 
 // ALI_EDITOR_SELFTEST=1: drive the real ImGui input path with synthetic mouse events and
 // report whether hover, orbit and gizmo-drag reach the editor. Prints "SELFTEST ..." lines.
@@ -999,8 +1085,9 @@ void Editor::draw(CommandContext& ctx, unsigned scene_tex, int, int) {
     commit_history(ctx);
     if (std::getenv("ALI_BLUEPRINT_SELFTEST")) {
         static bool done = false;
-        if (!done) { done = true; bp_->selftest(); ctx.quit = true; }
+        if (!done) { done = true; if (!bp_->selftest()) g_exit_code = 1; ctx.quit = true; }
     }
+    if (std::getenv("ALI_PLAYSTOP_SELFTEST")) playstop_selftest(ctx);
     if (std::getenv("ALI_EDITOR_SELFTEST"))
         editor_selftest(ctx, win_w_, win_h_, selected_, cam_yaw_, gizmo_op_, pivot_, cam_dist_);
 }

@@ -3,6 +3,7 @@
 #include "anim/animation_system.hpp"
 #include "anim/animator.hpp"
 #include "audio/audio.hpp"
+#include "bench/microbench.hpp"
 #include "behavior/behavior_system.hpp"
 #include "fx/particles.hpp"
 #include "game/gamestate.hpp"
@@ -31,7 +32,7 @@
 namespace fs = std::filesystem;
 using nlohmann::json;
 
-int main(int argc, char** argv) {
+static int run_engine(int argc, char** argv) {
     bool headless = false;
     bool editor_mode = false;
     bool start_playing = false;
@@ -39,6 +40,9 @@ int main(int argc, char** argv) {
     std::string scene_path;
     std::string shot_path;      // --shot <png>: grab the window then quit
     int shot_frame = 45;
+    bool allow_plugin_load = false;   // --allow-plugin-load: enable the plugin.load command
+    std::string write_root;           // --write-root <dir>: widen where the protocol may write
+    int microbench_n = 0;             // --microbench <n>: CPU scene timings on n entities, then quit
     int bench_frames = 0;       // --bench <n>: vsync off, time n frames, print stats, quit
 
     for (int i = 1; i < argc; ++i) {
@@ -51,7 +55,27 @@ int main(int argc, char** argv) {
         else if (a == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
         else if (a == "--shot" && i + 1 < argc) shot_path = argv[++i];
         else if (a == "--shot-frame" && i + 1 < argc) shot_frame = std::stoi(argv[++i]);
+        else if (a == "--microbench" && i + 1 < argc) microbench_n = std::stoi(argv[++i]);
         else if (a == "--bench" && i + 1 < argc) bench_frames = std::stoi(argv[++i]);
+        else if (a == "--allow-plugin-load") allow_plugin_load = true;
+        else if (a == "--write-root" && i + 1 < argc) write_root = argv[++i];
+        else if (a == "--version" || a == "-V") {
+            std::printf("ali-engine %s\n", ALI_VERSION);
+            return 0;
+        }
+        else if (a == "--help" || a == "-h") {
+            std::printf("usage: engine [--headless] [--editor] [--play] [--scene <json>] [--width N] [--height N]\n"
+                        "              [--shot <png>] [--shot-frame N] [--bench N] [--microbench N]\n"
+                        "              [--write-root <dir>] [--allow-plugin-load] [--version] [--help]\n"
+                        "note: --shot needs a window (not --headless)\n"
+                        "safety: the protocol only writes files under the startup working directory\n"
+                        "        (or --write-root); plugin.load is off unless --allow-plugin-load\n");
+            return 0;
+        }
+        else {
+            std::fprintf(stderr, "engine: unknown or incomplete argument '%s' (see --help)\n", a.c_str());
+            return 2;
+        }
     }
 
     if (editor_mode) headless = false;
@@ -76,6 +100,12 @@ int main(int argc, char** argv) {
     eng::ControlChannel channel(headless);
     eng::CommandContext ctx{scene, renderer, offscreen, physics, behaviors, nav, audio, game, scene_path};
     ctx.sim_running = start_playing;
+    ctx.allow_plugin_load = allow_plugin_load;
+    {
+        std::error_code ec;
+        ctx.write_root = write_root.empty() ? fs::current_path(ec).string()
+                                            : fs::absolute(write_root, ec).string();
+    }
 
     eng::InputSystem input;
     input.attach(headless ? nullptr : window.handle());
@@ -95,6 +125,12 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<eng::Editor> editor;
     if (editor_mode) editor = std::make_unique<eng::Editor>(window.handle());
+
+    if (microbench_n > 0) {   // a normal return would wait on the stdin reader thread
+        int rc = eng::run_microbench(microbench_n, ctx);
+        std::fflush(stdout);
+        std::_Exit(rc);
+    }
 
     eng::log::info("ready. headless=%d  scene=%s", headless,
                    scene_path.empty() ? "(none)" : scene_path.c_str());
@@ -147,7 +183,7 @@ int main(int argc, char** argv) {
                 last_write = scene_mtime();
         }
 
-        if (editor) editor->begin_frame();
+        if (editor) { editor->begin_frame(); editor->sync_play_input(ctx); }
 
         bool sim = editor ? editor->wants_play() : ctx.sim_running;
         input.update(dt);
@@ -156,6 +192,7 @@ int main(int argc, char** argv) {
         if (sim) eng::update_camera_rig(scene, dt);
         eng::update_animations(scene, dt);
         eng::update_particles(scene, dt);
+        audio.update();
         {
             eng::CameraComp& c = scene.camera();
             audio.set_listener(c.position, glm::normalize(c.target - c.position));
@@ -186,6 +223,12 @@ int main(int argc, char** argv) {
             editor->background(offscreen.color_texture(), W, H);   // blit + frosted blur
             editor->draw(ctx, offscreen.color_texture(), W, H);    // glass panels over it
             editor->end_frame();
+            if (std::string req = editor->take_shot_request(); !req.empty()) {
+                std::error_code ec;
+                if (fs::path(req).has_parent_path()) fs::create_directories(fs::path(req).parent_path(), ec);
+                if (eng::save_window_png(req, window.width(), window.height()))
+                    eng::log::info("shot saved: %s", req.c_str());
+            }
             grab_shot();
             window.swap();
         } else if (!headless) {
@@ -218,5 +261,16 @@ int main(int argc, char** argv) {
     }
 
     eng::log::info("shutting down (frame %ld quit=%d close=%d)", frame_no, (int)ctx.quit, (int)window.should_close());
-    return 0;
+    return eng::g_exit_code;
+}
+
+// The stdin reader thread (detached, blocked in getline) holds the stdin FILE lock; a normal
+// return from main() runs libc's exit-time stdio cleanup, which then waits for that lock
+// forever whenever the peer keeps the pipe open. Everything owned by run_engine() is already
+// destroyed at this point, so skip the libc teardown and leave directly.
+int main(int argc, char** argv) {
+    int rc = run_engine(argc, argv);
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(rc);
 }

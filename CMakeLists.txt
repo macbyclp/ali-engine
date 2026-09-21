@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(ali_engine C CXX)
+project(ali_engine VERSION 0.1.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -108,4 +108,57 @@ endif()
 
 target_compile_definitions(engine PRIVATE
     ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}"
+    ALI_VERSION="${PROJECT_VERSION}"
     GLFW_INCLUDE_NONE)
+
+# ---------------------------------------------------------------------------
+# Tests (ctest). GL-free unit test, headless protocol tests (EGL / hidden window),
+# and editor self-tests that need a window system (xvfb-run / $DISPLAY / Xephyr, else SKIP).
+# ---------------------------------------------------------------------------
+option(ALI_BUILD_TESTS "Build and register the ctest suite" ON)
+if(ALI_BUILD_TESTS)
+    enable_testing()
+    add_executable(unit_transform tests/unit_transform.cpp)
+    target_include_directories(unit_transform PRIVATE src ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR})
+    target_link_libraries(unit_transform PRIVATE glm::glm nlohmann_json::nlohmann_json EnTT::EnTT glad_gl46 glfw)
+    target_compile_definitions(unit_transform PRIVATE GLFW_INCLUDE_NONE)
+    add_test(NAME unit_transform COMMAND unit_transform)
+
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME protocol COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/protocol_test.py $<TARGET_FILE:engine>)
+        add_test(NAME microbench COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/microbench_check.py $<TARGET_FILE:engine> 2000)
+        set_tests_properties(protocol microbench PROPERTIES TIMEOUT 240)
+    endif()
+    add_test(NAME cli_version COMMAND engine --version)
+    set_tests_properties(cli_version PROPERTIES PASS_REGULAR_EXPRESSION "ali-engine ${PROJECT_VERSION}")
+    add_test(NAME cli_bad_arg COMMAND engine --definitely-not-a-flag)
+    set_tests_properties(cli_bad_arg PROPERTIES WILL_FAIL TRUE)
+
+    set(_wd ${CMAKE_SOURCE_DIR}/tests/with_display.sh)
+    add_test(NAME blueprint_selftest COMMAND ${_wd} $<TARGET_FILE:engine> --editor)
+    set_tests_properties(blueprint_selftest PROPERTIES ENVIRONMENT "ALI_BLUEPRINT_SELFTEST=1"
+        PASS_REGULAR_EXPRESSION "ALL PASS" SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME playstop_selftest COMMAND ${_wd} $<TARGET_FILE:engine> --editor --scene ${CMAKE_SOURCE_DIR}/tests/scenes/playstop.json)
+    set_tests_properties(playstop_selftest PROPERTIES ENVIRONMENT "ALI_PLAYSTOP_SELFTEST=1"
+        PASS_REGULAR_EXPRESSION "PLAYSTOP ALL PASS" FAIL_REGULAR_EXPRESSION "PLAYSTOP FAILED|: FAIL"
+        SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME editor_selftest COMMAND ${_wd} $<TARGET_FILE:engine> --editor --scene ${CMAKE_SOURCE_DIR}/scenes/demo.json)
+    set_tests_properties(editor_selftest PROPERTIES ENVIRONMENT "ALI_EDITOR_SELFTEST=1"
+        PASS_REGULAR_EXPRESSION "SELFTEST done" FAIL_REGULAR_EXPRESSION "=> BROKEN"
+        SKIP_RETURN_CODE 77 TIMEOUT 120)
+endif()
+
+# ---------------------------------------------------------------------------
+# install(): binary + the runtime data the docs point at (scenes, tools, assets, docs).
+#   cmake --install build --prefix /opt/ali-engine --component runtime
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+# Component "runtime" = just our files (the FetchContent dependencies bring their own
+# install rules; `--component runtime` leaves them out).
+install(TARGETS engine RUNTIME DESTINATION . COMPONENT runtime)
+install(DIRECTORY scenes tools assets games clients docs DESTINATION . COMPONENT runtime
+        PATTERN "node_modules" EXCLUDE PATTERN "__pycache__" EXCLUDE)
+install(FILES README.md LICENSE DESTINATION . COMPONENT runtime)
+install(FILES packaging/RELEASE-linux.txt DESTINATION . RENAME RELEASE.txt COMPONENT runtime)
+install(DIRECTORY DESTINATION plugins COMPONENT runtime)

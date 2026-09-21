@@ -26,7 +26,10 @@ struct CommandContext {
     NavGrid& nav;
     AudioEngine& audio;
     GameState& game;
+    std::string write_root;         // protocol file writes are confined here ("" = process cwd)
+    bool allow_plugin_load = false; // plugin.load is off unless --allow-plugin-load
     std::string scene_path;   // currently loaded scene file (for hot-reload + default save)
+    unsigned long command_seq = 0;   // bumped by every dispatch() (lets the editor notice AI edits)
     bool quit = false;
     bool sim_running = false;  // when true, main loop steps physics every frame
     std::unordered_map<std::string, nlohmann::json> checkpoints;
@@ -42,7 +45,7 @@ struct CommandContext {
 
 // Executes one request on the main thread, returns the response object.
 // Supported methods:
-//   ping
+//   ping | commands.list
 //   scene.load {path} | scene.save {path?} | scene.reset | scene.state
 //   entity.list | entity.spawn {name?,primitive?,gltf_path?,position?,rotation?,scale?,base_color?}
 //   entity.destroy {name} | entity.setTransform {name,position?,rotation?,scale?}

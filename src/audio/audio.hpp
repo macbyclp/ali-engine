@@ -1,6 +1,8 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 #include <memory>
 #include <string>
 
@@ -36,6 +38,10 @@ public:
     void set_volume(uint32_t handle, float volume);
     void set_pitch(uint32_t handle, float pitch);
     void stop(uint32_t handle, float fade_out_ms = 0.0f);
+    // Reclaim finished one-shot sounds; call once per frame.
+    void update();
+    size_t active_count() const;
+    std::vector<uint32_t> active_handles() const;
     void set_listener(const glm::vec3& pos, const glm::vec3& forward);
 
     // Mixer buses. "master" is the final output; other names are sub-groups.

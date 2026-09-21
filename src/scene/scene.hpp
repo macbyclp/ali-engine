@@ -40,6 +40,7 @@ public:
     void load_json(const nlohmann::json& j);
     entt::entity load_entity(const nlohmann::json& entity_json);   // append one entity
     nlohmann::json to_json() const;
+    nlohmann::json entity_json(entt::entity e) const;   // one entity (needs a Name)
 
     bool load_file(const std::string& path);
     bool save_file(const std::string& path) const;
@@ -54,6 +55,8 @@ public:
 
     // Resolve MeshRenderer::gpu for every entity (call after load / primitive change).
     void resolve_gpu_meshes();
+    // Same, for one entity only -- use after spawning / editing a single mesh (O(1), not O(N)).
+    void resolve_gpu_mesh(entt::entity e);
 
 private:
     // name -> entity, kept in sync by EnTT signals so it cannot go stale even when
@@ -63,6 +66,7 @@ private:
     void on_name_removed(entt::registry&, entt::entity);
 
     std::string unique_name(const std::string& base) const;
+    void resolve_mesh(entt::entity e, MeshRenderer& mr);
 };
 
 } // namespace eng

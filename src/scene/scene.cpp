@@ -96,7 +96,21 @@ entt::entity Scene::load_entity(const json& je) {
         if (je.contains("transform")) {
             const auto& jt = je["transform"];
             t.position = v3(jt.value("position", json()), t.position);
-            t.euler_deg = v3(jt.value("rotation", json()), t.euler_deg);
+            // "rotation_quat" [x,y,z,w] is exact and wins when present; "rotation" (Euler
+            // degrees, the historic field) is what older scenes carry.
+            if (jt.contains("rotation_quat") && jt["rotation_quat"].is_array() &&
+                jt["rotation_quat"].size() == 4) {
+                const auto& q = jt["rotation_quat"];
+                glm::quat rq(q[3].get<float>(), q[0].get<float>(), q[1].get<float>(), q[2].get<float>());
+                if (glm::length(rq) > 1e-6f) t.set_rotation(rq);
+                if (jt.contains("rotation")) {   // keep the author's Euler triple if it agrees
+                    glm::vec3 e = v3(jt["rotation"], t.euler_deg());
+                    if (std::abs(glm::dot(Transform::quat_from_euler_deg(e), t.rotation)) > 0.99999f)
+                        t.set_euler_deg(e);
+                }
+            } else if (jt.contains("rotation")) {
+                t.set_euler_deg(v3(jt["rotation"], glm::vec3(0)));
+            }
             t.scale = v3(jt.value("scale", json()), t.scale);
         }
         registry.emplace<Transform>(e, t);
@@ -114,6 +128,7 @@ entt::entity Scene::load_entity(const json& je) {
             mr.metallic = jm.value("metallic", mr.metallic);
             mr.roughness = jm.value("roughness", mr.roughness);
             mr.emissive = v3(jm.value("emissive", json()), mr.emissive);
+            mr.alpha = std::clamp(jm.value("alpha", mr.alpha), 0.0f, 1.0f);
             if (jm.contains("uv_scale") && jm["uv_scale"].is_array() && jm["uv_scale"].size() == 2)
                 mr.uv_scale = {jm["uv_scale"][0].get<float>(), jm["uv_scale"][1].get<float>()};
             mr.base_color_map = jm.value("base_color_map", std::string());
@@ -188,6 +203,7 @@ entt::entity Scene::load_entity(const json& je) {
                 em.start_color = {jp["start_color"][0], jp["start_color"][1], jp["start_color"][2], jp["start_color"][3]};
             if (jp.contains("end_color") && jp["end_color"].size() == 4)
                 em.end_color = {jp["end_color"][0], jp["end_color"][1], jp["end_color"][2], jp["end_color"][3]};
+            em.emitting = jp.value("emitting", em.emitting);
             registry.emplace<ParticleEmitter>(e, em);
         }
         if (je.contains("ui")) {
@@ -261,6 +277,8 @@ entt::entity Scene::load_entity(const json& je) {
             c.position = v3(jc.value("position", json()), c.position);
             c.target = v3(jc.value("target", json()), c.target);
             c.fov_deg = jc.value("fov_deg", c.fov_deg);
+            c.near_z = jc.value("near_z", c.near_z);
+            c.far_z = jc.value("far_z", c.far_z);
             c.follow = jc.value("follow", std::string());
             c.follow_offset = v3(jc.value("follow_offset", json()), c.follow_offset);
             c.follow_look = v3(jc.value("follow_look", json()), c.follow_look);
@@ -279,141 +297,154 @@ void Scene::load_json(const json& j) {
     resolve_gpu_meshes();
 }
 
+json Scene::entity_json(entt::entity e) const {
+    const Name& n = registry.get<Name>(e);
+    json je;
+    je["name"] = n.value;
+    if (auto* hh = registry.try_get<Hierarchy>(e); hh && !hh->parent_name.empty())
+        je["parent"] = hh->parent_name;
+    if (auto* t = registry.try_get<Transform>(e)) {
+        je["transform"] = {
+            {"position", v3(t->position)},
+            {"rotation", v3(t->euler_deg())},   // legacy view, kept for old readers
+            {"scale", v3(t->scale)},
+        };
+        // exact orientation, only when it is not the identity
+        if (t->rotation != glm::quat(1, 0, 0, 0))
+            je["transform"]["rotation_quat"] = json::array(
+                {t->rotation.x, t->rotation.y, t->rotation.z, t->rotation.w});
+    }
+    if (auto* mr = registry.try_get<MeshRenderer>(e)) {
+        je["mesh"] = {
+            {"primitive", mr->primitive},
+            {"base_color", v3(mr->base_color)},
+            {"metallic", mr->metallic},
+            {"roughness", mr->roughness},
+        };
+        auto& jm = je["mesh"];
+        if (!mr->gltf_path.empty()) jm["gltf_path"] = mr->gltf_path;
+        if (mr->build.is_array() && !mr->build.empty()) jm["build"] = mr->build;
+        if (glm::dot(mr->emissive, mr->emissive) > 0.0f) jm["emissive"] = v3(mr->emissive);
+        if (mr->alpha != 1.0f) jm["alpha"] = mr->alpha;
+        if (mr->uv_scale != glm::vec2(1.0f))
+            jm["uv_scale"] = json::array({mr->uv_scale.x, mr->uv_scale.y});
+        if (!mr->base_color_map.empty()) jm["base_color_map"] = mr->base_color_map;
+        if (!mr->normal_map.empty()) jm["normal_map"] = mr->normal_map;
+        if (!mr->metallic_roughness_map.empty()) jm["metallic_roughness_map"] = mr->metallic_roughness_map;
+        if (!mr->emissive_map.empty()) jm["emissive_map"] = mr->emissive_map;
+        if (!mr->ao_map.empty()) jm["ao_map"] = mr->ao_map;
+    }
+    if (auto* dl = registry.try_get<DirectionalLight>(e)) {
+        je["light"] = {
+            {"type", "directional"},
+            {"direction", v3(dl->direction)},
+            {"color", v3(dl->color)},
+            {"intensity", dl->intensity},
+        };
+    }
+    if (auto* pl = registry.try_get<PunctualLight>(e)) {
+        je["light"] = {
+            {"type", pl->spot ? "spot" : "point"},
+            {"color", v3(pl->color)},
+            {"intensity", pl->intensity},
+            {"range", pl->range},
+        };
+        if (pl->spot) {
+            je["light"]["direction"] = v3(pl->direction);
+            je["light"]["inner_deg"] = pl->inner_deg;
+            je["light"]["outer_deg"] = pl->outer_deg;
+            if (!pl->cast_shadows) je["light"]["cast_shadows"] = false;
+        }
+    }
+    if (auto* rb = registry.try_get<RigidBody>(e)) {
+        je["body"] = {
+            {"type", rb->type},
+            {"mass", rb->mass},
+            {"restitution", rb->restitution},
+            {"friction", rb->friction},
+            {"sensor", rb->sensor},
+        };
+        if (!rb->shape.empty()) je["body"]["shape"] = rb->shape;
+    }
+    if (auto* b = registry.try_get<Behavior>(e)) {
+        if (b->rules.is_array() && !b->rules.empty()) je["behavior"] = b->rules;
+    }
+    if (auto* j = registry.try_get<Joint>(e)) {
+        je["joint"] = {{"a", j->a}, {"b", j->b}, {"type", j->type},
+                       {"point", v3(j->point)}, {"axis", v3(j->axis)},
+                       {"min", j->min}, {"max", j->max}, {"length", j->length},
+                       {"stiffness", j->stiffness}, {"damping", j->damping}};
+    }
+    if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
+        je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},
+                           {"loop", ap->loop}, {"playing", ap->playing}};
+    }
+    if (auto* ac = registry.try_get<AnimatorController>(e)) {
+        if (!ac->states.empty()) je["animator"] = animator_to_json(*ac);
+    }
+    if (auto* tc = registry.try_get<TerrainComp>(e)) {
+        const TerrainData& td = tc->data;
+        je["terrain"] = {{"size", td.size}, {"resolution", td.resolution},
+                         {"height", td.height}, {"octaves", td.octaves},
+                         {"frequency", td.frequency}, {"seed", td.seed}};
+        if (td.sculpted) {
+            json h = json::array();
+            for (float v : td.heights) h.push_back(std::round(v * 1000.0f) / 1000.0f);
+            je["terrain"]["heights"] = std::move(h);
+        }
+    }
+    if (auto* cc = registry.try_get<CharacterController>(e)) {
+        je["character"] = {{"radius", cc->radius}, {"height", cc->height},
+                           {"move_speed", cc->move_speed}, {"jump_speed", cc->jump_speed}};
+    }
+    if (auto* ui = registry.try_get<UIElement>(e)) {
+        je["ui"] = {
+            {"kind", ui->kind}, {"anchor", ui->anchor},
+            {"pos", json::array({ui->pos.x, ui->pos.y})},
+            {"size", json::array({ui->size.x, ui->size.y})},
+            {"color", json::array({ui->color.x, ui->color.y, ui->color.z, ui->color.w})},
+            {"text", ui->text}, {"text_size", ui->text_size},
+            {"value", ui->value}, {"order", ui->order}, {"visible", ui->visible},
+            {"text_color", json::array({ui->text_color.x, ui->text_color.y,
+                                        ui->text_color.z, ui->text_color.w})},
+            {"fill_color", json::array({ui->fill_color.x, ui->fill_color.y,
+                                        ui->fill_color.z, ui->fill_color.w})},
+        };
+    }
+    if (auto* em = registry.try_get<ParticleEmitter>(e)) {
+        je["particles"] = {
+            {"rate", em->rate}, {"lifetime", em->lifetime}, {"emitting", em->emitting},
+            {"velocity", v3(em->velocity)}, {"velocity_spread", v3(em->velocity_spread)},
+            {"gravity", v3(em->gravity)}, {"start_size", em->start_size}, {"end_size", em->end_size},
+            {"start_color", json::array({em->start_color.x, em->start_color.y, em->start_color.z, em->start_color.w})},
+            {"end_color", json::array({em->end_color.x, em->end_color.y, em->end_color.z, em->end_color.w})},
+        };
+    }
+    if (auto* c = registry.try_get<CameraComp>(e)) {
+        je["camera"] = {
+            {"position", v3(c->position)},
+            {"target", v3(c->target)},
+            {"fov_deg", c->fov_deg},
+            {"near_z", c->near_z},
+            {"far_z", c->far_z},
+        };
+        if (!c->follow.empty()) {
+            je["camera"]["follow"] = c->follow;
+            je["camera"]["follow_offset"] = v3(c->follow_offset);
+            je["camera"]["follow_look"] = v3(c->follow_look);
+            je["camera"]["follow_stiffness"] = c->follow_stiffness;
+        }
+    }
+    return je;
+}
+
 json Scene::to_json() const {
     json out;
     if (env.is_object() && !env.empty()) out["environment"] = env;
     if (input_map.is_object() && !input_map.empty()) out["input"] = input_map;
     out["entities"] = json::array();
-    for (auto [e, n] : registry.view<Name>().each()) {
-        json je;
-        je["name"] = n.value;
-        if (auto* hh = registry.try_get<Hierarchy>(e); hh && !hh->parent_name.empty())
-            je["parent"] = hh->parent_name;
-        if (auto* t = registry.try_get<Transform>(e)) {
-            je["transform"] = {
-                {"position", v3(t->position)},
-                {"rotation", v3(t->euler_deg)},
-                {"scale", v3(t->scale)},
-            };
-        }
-        if (auto* mr = registry.try_get<MeshRenderer>(e)) {
-            je["mesh"] = {
-                {"primitive", mr->primitive},
-                {"base_color", v3(mr->base_color)},
-                {"metallic", mr->metallic},
-                {"roughness", mr->roughness},
-            };
-            auto& jm = je["mesh"];
-            if (!mr->gltf_path.empty()) jm["gltf_path"] = mr->gltf_path;
-            if (mr->build.is_array() && !mr->build.empty()) jm["build"] = mr->build;
-            if (glm::dot(mr->emissive, mr->emissive) > 0.0f) jm["emissive"] = v3(mr->emissive);
-            if (mr->uv_scale != glm::vec2(1.0f))
-                jm["uv_scale"] = json::array({mr->uv_scale.x, mr->uv_scale.y});
-            if (!mr->base_color_map.empty()) jm["base_color_map"] = mr->base_color_map;
-            if (!mr->normal_map.empty()) jm["normal_map"] = mr->normal_map;
-            if (!mr->metallic_roughness_map.empty()) jm["metallic_roughness_map"] = mr->metallic_roughness_map;
-            if (!mr->emissive_map.empty()) jm["emissive_map"] = mr->emissive_map;
-            if (!mr->ao_map.empty()) jm["ao_map"] = mr->ao_map;
-        }
-        if (auto* dl = registry.try_get<DirectionalLight>(e)) {
-            je["light"] = {
-                {"type", "directional"},
-                {"direction", v3(dl->direction)},
-                {"color", v3(dl->color)},
-                {"intensity", dl->intensity},
-            };
-        }
-        if (auto* pl = registry.try_get<PunctualLight>(e)) {
-            je["light"] = {
-                {"type", pl->spot ? "spot" : "point"},
-                {"color", v3(pl->color)},
-                {"intensity", pl->intensity},
-                {"range", pl->range},
-            };
-            if (pl->spot) {
-                je["light"]["direction"] = v3(pl->direction);
-                je["light"]["inner_deg"] = pl->inner_deg;
-                je["light"]["outer_deg"] = pl->outer_deg;
-                if (!pl->cast_shadows) je["light"]["cast_shadows"] = false;
-            }
-        }
-        if (auto* rb = registry.try_get<RigidBody>(e)) {
-            je["body"] = {
-                {"type", rb->type},
-                {"mass", rb->mass},
-                {"restitution", rb->restitution},
-                {"friction", rb->friction},
-                {"sensor", rb->sensor},
-            };
-            if (!rb->shape.empty()) je["body"]["shape"] = rb->shape;
-        }
-        if (auto* b = registry.try_get<Behavior>(e)) {
-            if (b->rules.is_array() && !b->rules.empty()) je["behavior"] = b->rules;
-        }
-        if (auto* j = registry.try_get<Joint>(e)) {
-            je["joint"] = {{"a", j->a}, {"b", j->b}, {"type", j->type},
-                           {"point", v3(j->point)}, {"axis", v3(j->axis)},
-                           {"min", j->min}, {"max", j->max}, {"length", j->length},
-                           {"stiffness", j->stiffness}, {"damping", j->damping}};
-        }
-        if (auto* ap = registry.try_get<AnimationPlayer>(e)) {
-            je["animation"] = {{"clip", ap->clip}, {"speed", ap->speed},
-                               {"loop", ap->loop}, {"playing", ap->playing}};
-        }
-        if (auto* ac = registry.try_get<AnimatorController>(e)) {
-            if (!ac->states.empty()) je["animator"] = animator_to_json(*ac);
-        }
-        if (auto* tc = registry.try_get<TerrainComp>(e)) {
-            const TerrainData& td = tc->data;
-            je["terrain"] = {{"size", td.size}, {"resolution", td.resolution},
-                             {"height", td.height}, {"octaves", td.octaves},
-                             {"frequency", td.frequency}, {"seed", td.seed}};
-            if (td.sculpted) {
-                json h = json::array();
-                for (float v : td.heights) h.push_back(std::round(v * 1000.0f) / 1000.0f);
-                je["terrain"]["heights"] = std::move(h);
-            }
-        }
-        if (auto* cc = registry.try_get<CharacterController>(e)) {
-            je["character"] = {{"radius", cc->radius}, {"height", cc->height},
-                               {"move_speed", cc->move_speed}, {"jump_speed", cc->jump_speed}};
-        }
-        if (auto* ui = registry.try_get<UIElement>(e)) {
-            je["ui"] = {
-                {"kind", ui->kind}, {"anchor", ui->anchor},
-                {"pos", json::array({ui->pos.x, ui->pos.y})},
-                {"size", json::array({ui->size.x, ui->size.y})},
-                {"color", json::array({ui->color.x, ui->color.y, ui->color.z, ui->color.w})},
-                {"text", ui->text}, {"text_size", ui->text_size},
-                {"value", ui->value}, {"order", ui->order}, {"visible", ui->visible},
-                {"text_color", json::array({ui->text_color.x, ui->text_color.y,
-                                            ui->text_color.z, ui->text_color.w})},
-            };
-        }
-        if (auto* em = registry.try_get<ParticleEmitter>(e)) {
-            je["particles"] = {
-                {"rate", em->rate}, {"lifetime", em->lifetime},
-                {"velocity", v3(em->velocity)}, {"velocity_spread", v3(em->velocity_spread)},
-                {"gravity", v3(em->gravity)}, {"start_size", em->start_size}, {"end_size", em->end_size},
-                {"start_color", json::array({em->start_color.x, em->start_color.y, em->start_color.z, em->start_color.w})},
-                {"end_color", json::array({em->end_color.x, em->end_color.y, em->end_color.z, em->end_color.w})},
-            };
-        }
-        if (auto* c = registry.try_get<CameraComp>(e)) {
-            je["camera"] = {
-                {"position", v3(c->position)},
-                {"target", v3(c->target)},
-                {"fov_deg", c->fov_deg},
-            };
-            if (!c->follow.empty()) {
-                je["camera"]["follow"] = c->follow;
-                je["camera"]["follow_offset"] = v3(c->follow_offset);
-                je["camera"]["follow_look"] = v3(c->follow_look);
-                je["camera"]["follow_stiffness"] = c->follow_stiffness;
-            }
-        }
-        out["entities"].push_back(je);
-    }
+    for (auto [e, n] : registry.view<Name>().each())
+        out["entities"].push_back(entity_json(e));
     return out;
 }
 
@@ -507,13 +538,23 @@ std::vector<std::string> Scene::instantiate(const json& prefab, const std::strin
             je["transform"]["position"] = json::array({at.x, at.y, at.z});
         entt::entity e = load_entity(je);
         created.push_back(registry.get<Name>(e).value);
+        resolve_gpu_mesh(e);   // only the new entities; the rest of the scene is already resolved
     }
-    resolve_gpu_meshes();
     return created;
 }
 
 void Scene::resolve_gpu_meshes() {
-    for (auto [e, mr] : registry.view<MeshRenderer>().each()) {
+    for (auto [e, mr] : registry.view<MeshRenderer>().each()) resolve_mesh(e, mr);
+}
+
+// Incremental form: resolve just one entity (spawn / mesh.build / terrain edit / restore).
+// resolve_gpu_meshes() over the whole scene is O(N) -- fine for a load, wasteful per edit.
+void Scene::resolve_gpu_mesh(entt::entity e) {
+    if (auto* mr = registry.try_get<MeshRenderer>(e)) resolve_mesh(e, *mr);
+}
+
+void Scene::resolve_mesh(entt::entity e, MeshRenderer& mr) {
+    {
         std::string key = mr.primitive;
         if (mr.primitive == "gltf") key = "gltf:" + mr.gltf_path;
 
@@ -521,7 +562,7 @@ void Scene::resolve_gpu_meshes() {
             MeshData d = build_procedural(mr.build);
             if (d.idx.empty()) d = make_box(glm::vec3(1));
             mr.gpu = d.upload();
-            continue;
+            return;
         }
         if (mr.primitive == "terrain") {
             auto* tc = registry.try_get<TerrainComp>(e);
@@ -532,7 +573,7 @@ void Scene::resolve_gpu_meshes() {
             } else {
                 mr.gpu = Mesh::plane(10.0f);
             }
-            continue;
+            return;
         }
 
         if (mr.primitive == "skinned") {

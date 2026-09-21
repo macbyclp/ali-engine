@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
+#include <stdexcept>
 #include <glm/glm.hpp>
 
 using nlohmann::json;
@@ -56,19 +58,47 @@ static json ok(const json& id, json result = json::object()) {
     return {{"id", id}, {"ok", true}, {"result", std::move(result)}};
 }
 
-// Resolve a { "path": ... } param to a writable file path, creating parent dirs.
-// Falls back to ./screenshots/<def> when no path is given.
-static std::string resolve_out_path(const json& p, const char* def) {
-    std::string path = p.value("path", std::string());
-    if (path.empty()) {
-        fs::path dir = fs::current_path() / "screenshots";
-        fs::create_directories(dir);
-        return (dir / def).string();
-    }
+// ---- write confinement (command-channel safety) ----
+// Every file the protocol *writes* (scene.save, prefab.save, screenshots, record.start ...)
+// must stay inside the write root: the working directory at startup, or --write-root.
+struct PermissionError : std::runtime_error { using std::runtime_error::runtime_error; };
+
+static fs::path write_root(const CommandContext& ctx) {
+    fs::path r = ctx.write_root.empty() ? fs::current_path() : fs::path(ctx.write_root);
+    std::error_code ec;
+    fs::path c = fs::weakly_canonical(r, ec);
+    return ec ? r : c;
+}
+// Throws PermissionError unless `path` (after resolving "..", symlinks) is inside the root.
+static void confine(const CommandContext& ctx, const std::string& path) {
+    if (path.empty()) throw PermissionError("empty path");
+    fs::path root = write_root(ctx);
+    std::error_code ec;
+    fs::path abs = fs::absolute(fs::path(path), ec);
+    fs::path t = fs::weakly_canonical(abs, ec);
+    if (ec) throw PermissionError("bad path: " + path);
+    fs::path rel = t.lexically_relative(root);
+    if (rel.empty() || *rel.begin() == "..")
+        throw PermissionError("path outside write root (" + root.string() + "): " + path +
+                              " -- start the engine with --write-root <dir> to widen it");
+}
+static void make_parent(const std::string& path) {
     if (fs::path(path).has_parent_path()) {
         std::error_code ec;
         fs::create_directories(fs::path(path).parent_path(), ec);
     }
+}
+// Resolve a { "path": ... } param to a confined, writable file path, creating parent dirs.
+// Falls back to <root>/screenshots/<def> when no path is given.
+static std::string resolve_out_path(const CommandContext& ctx, const json& p, const char* def) {
+    std::string path = p.value("path", std::string());
+    if (path.empty()) {
+        fs::path dir = write_root(ctx) / "screenshots";
+        fs::create_directories(dir);
+        return (dir / def).string();
+    }
+    confine(ctx, path);
+    make_parent(path);
     return path;
 }
 
@@ -170,6 +200,7 @@ static void apply_material(MeshRenderer& mr, const json& p) {
     mr.metallic = p.value("metallic", mr.metallic);
     mr.roughness = p.value("roughness", mr.roughness);
     mr.emissive = v3(p.value("emissive", json()), mr.emissive);
+    mr.alpha = std::clamp(p.value("alpha", mr.alpha), 0.0f, 1.0f);
     if (p.contains("uv_scale") && p["uv_scale"].is_array() && p["uv_scale"].size() == 2)
         mr.uv_scale = {p["uv_scale"][0].get<float>(), p["uv_scale"][1].get<float>()};
     mr.base_color_map = p.value("base_color_map", mr.base_color_map);
@@ -181,52 +212,67 @@ static void apply_material(MeshRenderer& mr, const json& p) {
 
 static void apply_transform(Transform& t, const json& p) {
     if (p.contains("position")) t.position = v3(p["position"], t.position);
-    if (p.contains("rotation")) t.euler_deg = v3(p["rotation"], t.euler_deg);
+    if (p.contains("rotation_quat") && p["rotation_quat"].is_array() && p["rotation_quat"].size() == 4) {
+        const json& q = p["rotation_quat"];   // [x,y,z,w]
+        glm::quat rq(q[3].get<float>(), q[0].get<float>(), q[1].get<float>(), q[2].get<float>());
+        if (glm::length(rq) > 1e-6f) t.set_rotation(rq);
+    } else if (p.contains("rotation")) {
+        t.set_euler_deg(v3(p["rotation"], t.euler_deg()));
+    }
     if (p.contains("scale")) {
         if (p["scale"].is_number()) t.scale = glm::vec3(p["scale"].get<float>());
         else t.scale = v3(p["scale"], t.scale);
     }
 }
 
-nlohmann::json dispatch(CommandContext& ctx, const json& req) {
-    const json id = req.value("id", json(nullptr));
-    const std::string method = req.value("method", std::string());
-    const json p = req.value("params", json::object());
-    Scene& scene = ctx.scene;
-
-    if (ctx.recording && method != "quit" && method.rfind("record.", 0) != 0) {
-        ctx.record_file << req.dump() << '\n';
-        ctx.record_file.flush();
+using Handler = std::function<json(CommandContext&, const json&, const json&, Scene&)>;
+struct CmdTable {
+    std::map<std::string, Handler> map;   // sorted -> stable commands.list output
+    void operator()(std::initializer_list<const char*> names, Handler h) {
+        for (const char* n : names) map[n] = h;
     }
+};
+static const CmdTable& command_table();
 
-    try {
-        if (method == "ping") return ok(id, {{"pong", true}});
+static void register_commands(CmdTable& reg) {
+    // Introspection: every method the core dispatcher knows (plugins may add more; ask
+    // plugin.list). Sorted, so the output is stable.
+    reg({"commands.list"}, [](CommandContext& ctx, const json& id, const json&, Scene&) -> json {
+        json names = json::array();
+        for (const auto& [n, h] : command_table().map) names.push_back(n);
+        return ok(id, {{"commands", names}, {"count", names.size()},
+                       {"plugin_load_enabled", ctx.allow_plugin_load},
+                       {"write_root", write_root(ctx).string()}});
+    });
+    reg({"ping"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, {{"pong", true}}); });
 
-        if (method == "quit") { ctx.quit = true; return ok(id); }
+    reg({"quit"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { ctx.quit = true; return ok(id); });
 
-        if (method == "scene.load") {
+    reg({"scene.load"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string path = p.at("path").get<std::string>();
             if (!scene.load_file(path)) return fail(id, "load failed: " + path);
             ctx.scene_path = path;
             return ok(id, {{"entities", scene.names().size()}});
-        }
-        if (method == "scene.save") {
+    });
+    reg({"scene.save"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string path = p.value("path", ctx.scene_path);
             if (path.empty()) return fail(id, "no path and no active scene");
+            confine(ctx, path);
+            make_parent(path);
             if (!scene.save_file(path)) return fail(id, "save failed: " + path);
             ctx.scene_path = path;
             return ok(id, {{"path", path}});
-        }
-        if (method == "scene.reset") {
+    });
+    reg({"scene.reset"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             scene.clear();
             ctx.physics.clear();
             return ok(id);
-        }
-        if (method == "scene.state") return ok(id, scene.to_json());
+    });
+    reg({"scene.state"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, scene.to_json()); });
 
-        if (method == "entity.list") return ok(id, {{"names", scene.names()}});
+    reg({"entity.list"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, {{"names", scene.names()}}); });
 
-        if (method == "entity.spawn") {
+    reg({"entity.spawn"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.create(p.value("name", std::string("entity")));
             std::string name = scene.registry.get<Name>(e).value;
             auto& t = scene.registry.get<Transform>(e);
@@ -238,7 +284,7 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (p.contains("build")) { mr.primitive = "procedural"; mr.build = p["build"]; }
             apply_material(mr, p);
             scene.registry.emplace<MeshRenderer>(e, mr);
-            scene.resolve_gpu_meshes();
+            scene.resolve_gpu_mesh(e);
 
             if (p.contains("parent"))
                 scene.registry.emplace<Hierarchy>(e, Hierarchy{p["parent"].get<std::string>()});
@@ -293,8 +339,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 ctx.physics.sync(scene);
             }
             return ok(id, {{"name", name}});
-        }
-        if (method == "mesh.build") {
+    });
+    reg({"mesh.build"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             if (!p.contains("build") || !p["build"].is_array())
@@ -302,11 +348,11 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             auto& mr = scene.registry.get_or_emplace<MeshRenderer>(e);
             mr.primitive = "procedural";
             mr.build = p["build"];
-            scene.resolve_gpu_meshes();
+            scene.resolve_gpu_mesh(e);
             int tris = mr.gpu ? mr.gpu->index_count() / 3 : 0;
             return ok(id, {{"triangles", tris}});
-        }
-        if (method == "terrain.create") {
+    });
+    reg({"terrain.create"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.value("name", std::string("terrain"));
             auto e = scene.find(name);
             if (e == entt::null) e = scene.create(name);
@@ -332,12 +378,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             } else {
                 scene.registry.remove<RigidBody>(e);
             }
-            scene.resolve_gpu_meshes();
+            scene.resolve_gpu_mesh(e);
             ctx.physics.sync(scene);
             return ok(id, {{"name", scene.registry.get<Name>(e).value},
                            {"resolution", scene.registry.get<TerrainComp>(e).data.resolution}});
-        }
-        if (method == "terrain.sculpt") {
+    });
+    reg({"terrain.sculpt"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* tc = scene.registry.try_get<TerrainComp>(e);
@@ -345,41 +391,39 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             glm::vec3 at = v3(p.value("at", p.value("position", json())), glm::vec3(0));
             tc->data.sculpt(at.x, at.z, p.value("radius", 5.0f), p.value("strength", 1.0f),
                             p.value("mode", std::string("raise")));
-            scene.resolve_gpu_meshes();
+            scene.resolve_gpu_mesh(e);
             ctx.physics.rebuild_body(scene, p.at("name").get<std::string>());  // refresh terrain collider
             return ok(id);
-        }
-        if (method == "terrain.height") {
+    });
+    reg({"terrain.height"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* tc = scene.registry.try_get<TerrainComp>(e);
             if (!tc) return fail(id, "entity has no terrain");
             glm::vec3 at = v3(p.value("at", json()), glm::vec3(0));
             return ok(id, {{"height", tc->data.sample(at.x, at.z)}});
-        }
-        if (method == "entity.setParent") {
+    });
+    reg({"entity.setParent"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             std::string par = p.value("parent", std::string());
             if (par.empty()) scene.registry.remove<Hierarchy>(e);
             else scene.registry.emplace_or_replace<Hierarchy>(e, Hierarchy{par});
             return ok(id);
-        }
-        if (method == "prefab.save") {
+    });
+    reg({"prefab.save"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string root = p.at("root").get<std::string>();
             std::string path = p.at("path").get<std::string>();
             if (scene.find(root) == entt::null) return fail(id, "no such entity: " + root);
             json pf = scene.export_subtree(root);
-            if (fs::path(path).has_parent_path()) {
-                std::error_code ec;
-                fs::create_directories(fs::path(path).parent_path(), ec);
-            }
+            confine(ctx, path);
+            make_parent(path);
             std::ofstream f(path);
             if (!f) return fail(id, "cannot write: " + path);
             f << pf.dump(2) << "\n";
             return ok(id, {{"path", path}, {"entities", pf["entities"].size()}});
-        }
-        if (method == "prefab.instantiate") {
+    });
+    reg({"prefab.instantiate"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string path = p.at("path").get<std::string>();
             std::string name = p.at("name").get<std::string>();
             std::ifstream f(path);
@@ -389,8 +433,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             auto created = scene.instantiate(pf, name, at, p.contains("position"));
             ctx.physics.sync(scene);
             return ok(id, {{"created", created}});
-        }
-        if (method == "entity.setBody") {
+    });
+    reg({"entity.setBody"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto& rb = scene.registry.get_or_emplace<RigidBody>(e);
@@ -401,29 +445,29 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             rb.friction = p.value("friction", rb.friction);
             ctx.physics.sync(scene);
             return ok(id);
-        }
-        if (method == "entity.destroy") {
+    });
+    reg({"entity.destroy"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.at("name").get<std::string>();
             return scene.destroy(name) ? ok(id) : fail(id, "no such entity: " + name);
-        }
-        if (method == "entity.setTransform") {
+    });
+    reg({"entity.setTransform"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.at("name").get<std::string>();
             auto e = scene.find(name);
             if (e == entt::null) return fail(id, "no such entity");
             apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
             ctx.physics.teleport(scene, name);
             return ok(id);
-        }
-        if (method == "entity.setMaterial") {
+    });
+    reg({"entity.setMaterial"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* mr = scene.registry.try_get<MeshRenderer>(e);
             if (!mr) return fail(id, "entity has no mesh");
             apply_material(*mr, p);
-            scene.resolve_gpu_meshes();
+            scene.resolve_gpu_mesh(e);
             return ok(id);
-        }
-        if (method == "light.set" || method == "light.add") {
+    });
+    reg({"light.set","light.add"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.value("name", std::string("sun"));
             std::string type = p.value("type", std::string());
             auto e = scene.find(name);
@@ -451,28 +495,28 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 dl.intensity = p.value("intensity", dl.intensity);
             }
             return ok(id, {{"name", scene.registry.get<Name>(e).value}});
-        }
-        if (method == "camera.set") {
+    });
+    reg({"camera.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto& c = scene.camera();
             c.position = v3(p.value("position", json()), c.position);
             c.target = v3(p.value("target", json()), c.target);
             c.fov_deg = p.value("fov_deg", c.fov_deg);
             return ok(id);
-        }
-        if (method == "camera.follow") {
+    });
+    reg({"camera.follow"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto& c = scene.camera();
             c.follow = p.value("target", p.value("follow", std::string()));  // "" clears
             c.follow_offset = v3(p.value("offset", json()), c.follow_offset);
             c.follow_look = v3(p.value("look", json()), c.follow_look);
             c.follow_stiffness = p.value("stiffness", c.follow_stiffness);
             return ok(id, {{"follow", c.follow}});
-        }
-        if (method == "camera.get") {
+    });
+    reg({"camera.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto& c = scene.camera();
             return ok(id, {{"position", v3(c.position)}, {"target", v3(c.target)},
                            {"fov_deg", c.fov_deg}});
-        }
-        if (method == "world.step") {
+    });
+    reg({"world.step"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             float dt = p.value("dt", 1.0f / 60.0f);
             int steps = p.value("steps", 1);
             int substeps = p.value("substeps", 1);
@@ -488,8 +532,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 ctx.physics.step_characters(scene, dt);
             }
             return ok(id, {{"stepped", steps}, {"dt", dt}});
-        }
-        if (method == "animation.play") {
+    });
+    reg({"animation.play"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto& ap = scene.registry.get_or_emplace<AnimationPlayer>(e);
@@ -509,20 +553,20 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ap.playing = true;
             if (p.value("restart", false)) ap.time = 0.0f;
             return ok(id);
-        }
-        if (method == "animation.pause") {
+    });
+    reg({"animation.pause"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             if (auto* ap = scene.registry.try_get<AnimationPlayer>(e)) ap->playing = false;
             return ok(id);
-        }
-        if (method == "animation.stop") {
+    });
+    reg({"animation.stop"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             if (auto* ap = scene.registry.try_get<AnimationPlayer>(e)) { ap->playing = false; ap->time = 0.0f; }
             return ok(id);
-        }
-        if (method == "animation.list") {
+    });
+    reg({"animation.list"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* mr = scene.registry.try_get<MeshRenderer>(e);
@@ -530,8 +574,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (mr && mr->skinned)
                 for (auto& [k, v] : mr->skinned->clips) clips.push_back(k);
             return ok(id, {{"clips", clips}});
-        }
-        if (method == "animator.set") {
+    });
+    reg({"animator.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             AnimatorController c = animator_from_json(p);
@@ -539,8 +583,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             scene.registry.emplace_or_replace<AnimatorController>(e, std::move(c));
             scene.registry.get_or_emplace<AnimationPlayer>(e);
             return ok(id, {{"states", p.value("states", json::array()).size()}});
-        }
-        if (method == "animator.param") {
+    });
+    reg({"animator.param"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* c = scene.registry.try_get<AnimatorController>(e);
@@ -554,8 +598,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 c->params[key] = v.is_boolean() ? (v.get<bool>() ? 1.f : 0.f) : v.get<float>();
             }
             return ok(id);
-        }
-        if (method == "animator.get") {
+    });
+    reg({"animator.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* c = scene.registry.try_get<AnimatorController>(e);
@@ -565,8 +609,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             return ok(id, {{"current", c->current}, {"entry", c->entry},
                            {"params", params}, {"states", c->states.size()},
                            {"transitions", c->transitions.size()}});
-        }
-        if (method == "audio.play") {
+    });
+    reg({"audio.play"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             AudioEngine::PlayOpts o;
             o.volume = p.value("volume", 1.0f);
             o.loop = p.value("loop", false);
@@ -579,25 +623,25 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             uint32_t h = ctx.audio.play(p.at("file").get<std::string>(), o);
             if (!h) return fail(id, ctx.audio.ok() ? "load failed" : "no audio device");
             return ok(id, {{"handle", h}});
-        }
-        if (method == "audio.set") {
+    });
+    reg({"audio.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             uint32_t h = (uint32_t)p.at("handle").get<int64_t>();
             if (p.contains("volume")) ctx.audio.set_volume(h, p["volume"].get<float>());
             if (p.contains("pitch")) ctx.audio.set_pitch(h, p["pitch"].get<float>());
             if (p.contains("position")) ctx.audio.set_position(h, v3(p["position"], glm::vec3(0)));
             return ok(id);
-        }
-        if (method == "audio.stop") {
+    });
+    reg({"audio.stop"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (p.contains("bus")) ctx.audio.stop_bus(p["bus"].get<std::string>());
             else ctx.audio.stop((uint32_t)p.at("handle").get<int64_t>(), p.value("fade_out", 0.0f));
             return ok(id);
-        }
-        if (method == "render.set") {
+    });
+    reg({"render.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (p.is_object()) for (auto& [k, v] : p.items()) scene.env[k] = v;
             return ok(id, {{"environment", scene.env}});
-        }
-        if (method == "render.get") return ok(id, {{"environment", scene.env}});
-        if (method == "input.map") {
+    });
+    reg({"render.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, {{"environment", scene.env}}); });
+    reg({"input.map"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (!ctx.input) return fail(id, "input unavailable");
             if (p.contains("bindings") && p["bindings"].is_object()) {
                 for (auto& [a, keys] : p["bindings"].items())
@@ -609,20 +653,20 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                                                  : k.get<std::vector<std::string>>());
             }
             return ok(id, {{"bindings", ctx.input->bindings_json()}});
-        }
-        if (method == "input.unmap") {
+    });
+    reg({"input.unmap"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (!ctx.input) return fail(id, "input unavailable");
             if (p.contains("action")) ctx.input->unbind(p["action"].get<std::string>());
             else ctx.input->clear();
             return ok(id);
-        }
-        if (method == "input.state") {
+    });
+    reg({"input.state"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (!ctx.input) return fail(id, "input unavailable");
             return ok(id, ctx.input->state_json());
-        }
+    });
         // Scripted / AI input: hold or release an action. Gameplay cannot tell it
         // apart from a key press, so an agent can play its own game.
-        if (method == "input.set") {
+    reg({"input.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (!ctx.input) return fail(id, "input unavailable");
             if (p.contains("actions") && p["actions"].is_object()) {
                 for (auto& [a, v] : p["actions"].items())
@@ -633,18 +677,22 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 ctx.input->clear_virtual();
             }
             return ok(id);
-        }
-        if (method == "audio.bus") {
+    });
+    reg({"audio.list"}, [](CommandContext& ctx, const json& id, const json&, Scene&) -> json {
+        auto hs = ctx.audio.active_handles();
+        return ok(id, {{"sounds", hs}, {"count", hs.size()}, {"device", ctx.audio.ok()}});
+    });
+    reg({"audio.bus"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string bus = p.value("bus", std::string("master"));
             if (p.contains("volume")) ctx.audio.set_bus_volume(bus, p["volume"].get<float>());
             return ok(id, {{"bus", bus}, {"volume", ctx.audio.bus_volume(bus)}});
-        }
-        if (method == "checkpoint.save") {
+    });
+    reg({"checkpoint.save"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.value("name", std::string("default"));
             ctx.checkpoints[name] = {{"scene", scene.to_json()}, {"state", ctx.game.values}};
             return ok(id, {{"name", name}});
-        }
-        if (method == "checkpoint.restore") {
+    });
+    reg({"checkpoint.restore"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.value("name", std::string("default"));
             auto it = ctx.checkpoints.find(name);
             if (it == ctx.checkpoints.end()) return fail(id, "no checkpoint: " + name);
@@ -653,23 +701,25 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ctx.game.timers.clear();
             ctx.physics.sync(scene);
             return ok(id);
-        }
-        if (method == "state.set") {
+    });
+    reg({"state.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.game.values[p.at("key").get<std::string>()] = p.value("value", json());
             return ok(id);
-        }
-        if (method == "state.get") {
+    });
+    reg({"state.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string k = p.at("key").get<std::string>();
             if (!ctx.game.values.contains(k)) return ok(id, {{"value", nullptr}});
             return ok(id, {{"value", ctx.game.values[k]}});
-        }
-        if (method == "state.list") return ok(id, ctx.game.values);
-        if (method == "state.clear") { ctx.game.values = json::object(); ctx.game.timers.clear(); return ok(id); }
-        if (method == "timer.after") {
+    });
+    reg({"state.list"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, ctx.game.values); });
+    reg({"state.clear"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { ctx.game.values = json::object(); ctx.game.timers.clear(); return ok(id); });
+    reg({"timer.after"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.game.timers.push_back({p.value("seconds", 1.0f), p.at("event").get<std::string>()});
             return ok(id);
-        }
-        if (method == "observe.view") {
+    });
+    reg({"observe.view"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
+            if (!p.value("path", std::string()).empty())
+                confine(ctx, p.value("path", std::string()));   // before the camera is touched
             CameraComp saved = scene.camera();
             CameraComp& c = scene.camera();
             c.position = v3(p.value("position", json()), c.position);
@@ -680,12 +730,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ctx.offscreen.resize(vw, vh);
             std::string path = p.value("path", std::string());
             if (path.empty()) {
-                fs::path dir = fs::current_path() / "screenshots";
+                fs::path dir = write_root(ctx) / "screenshots";
                 fs::create_directories(dir);
                 path = (dir / "view.png").string();
-            } else if (fs::path(path).has_parent_path()) {
-                std::error_code ec;
-                fs::create_directories(fs::path(path).parent_path(), ec);
+            } else {
+                confine(ctx, path);
+                make_parent(path);
             }
             ctx.renderer.render(scene, ctx.offscreen.id(), vw, vh);
             bool saved_ok = ctx.offscreen.save_png(path);
@@ -693,8 +743,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             c = saved;   // restore scene camera
             if (!saved_ok) return fail(id, "view render failed");
             return ok(id, {{"path", path}, {"width", vw}, {"height", vh}});
-        }
-        if (method == "ui.add" || method == "ui.set") {
+    });
+    reg({"ui.add","ui.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string name = p.at("name").get<std::string>();
             auto e = scene.find(name);
             if (e == entt::null) e = scene.create(name);
@@ -717,14 +767,14 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ui.visible = p.value("visible", ui.visible);
             ui.order = p.value("order", ui.order);
             return ok(id, {{"name", name}});
-        }
-        if (method == "ui.remove") {
+    });
+    reg({"ui.remove"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such element");
             scene.registry.remove<UIElement>(e);
             return ok(id);
-        }
-        if (method == "particles.emit") {
+    });
+    reg({"particles.emit"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) e = scene.create(p.at("name").get<std::string>());
             apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
@@ -742,14 +792,14 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             em.end_size = p.value("end_size", em.end_size);
             em.emitting = p.value("emitting", true);
             return ok(id);
-        }
-        if (method == "particles.stop") {
+    });
+    reg({"particles.stop"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such emitter");
             if (auto* em = scene.registry.try_get<ParticleEmitter>(e)) em->emitting = false;
             return ok(id);
-        }
-        if (method == "character.create") {
+    });
+    reg({"character.create"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) e = scene.create(p.at("name").get<std::string>());
             apply_transform(scene.registry.get_or_emplace<Transform>(e), p);
@@ -763,12 +813,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 mr.primitive = "sphere";
                 mr.base_color = v3(p.value("base_color", json()), glm::vec3(0.9f, 0.7f, 0.3f));
                 scene.registry.emplace<MeshRenderer>(e, mr);
-                scene.resolve_gpu_meshes();
+                scene.resolve_gpu_mesh(e);
             }
             ctx.physics.sync_characters(scene);
             return ok(id);
-        }
-        if (method == "character.move") {
+    });
+    reg({"character.move"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such character");
             auto* cc = scene.registry.try_get<CharacterController>(e);
@@ -778,14 +828,14 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             cc->desired_velocity = dir * p.value("speed", cc->move_speed);
             cc->path.clear();
             return ok(id);
-        }
-        if (method == "character.jump") {
+    });
+    reg({"character.jump"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such character");
             if (auto* cc = scene.registry.try_get<CharacterController>(e)) cc->want_jump = true;
             return ok(id);
-        }
-        if (method == "character.moveTo") {
+    });
+    reg({"character.moveTo"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such character");
             auto* cc = scene.registry.try_get<CharacterController>(e);
@@ -801,16 +851,16 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 cc->path_idx = 0;
             }
             return ok(id, {{"waypoints", cc->path.size()}});
-        }
-        if (method == "nav.bake") {
+    });
+    reg({"nav.bake"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             glm::vec3 mn = v3(p.value("min", json()), glm::vec3(-25, 0, -25));
             glm::vec3 mx = v3(p.value("max", json()), glm::vec3(25, 0, 25));
             float cell = p.value("cell", 1.0f);
             ctx.physics.sync(scene);
             ctx.nav.bake(scene, mn, mx, cell);
             return ok(id);
-        }
-        if (method == "nav.path") {
+    });
+    reg({"nav.path"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             if (!ctx.nav.ready()) return fail(id, "nav not baked");
             glm::vec3 a = v3(p.at("from"), glm::vec3(0));
             glm::vec3 b = v3(p.at("to"), glm::vec3(0));
@@ -818,33 +868,32 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             json arr = json::array();
             for (auto& pt : pts) arr.push_back(v3(pt));
             return ok(id, {{"waypoints", arr}});
-        }
-        if (method == "behavior.set") {
+    });
+    reg({"behavior.set"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             json rules = p.contains("behaviors") ? p["behaviors"] : p.value("rules", json::array());
             scene.registry.emplace_or_replace<Behavior>(e, Behavior{rules, false});
             return ok(id);
-        }
-        if (method == "behavior.get") {
+    });
+    reg({"behavior.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
             if (e == entt::null) return fail(id, "no such entity");
             auto* b = scene.registry.try_get<Behavior>(e);
             return ok(id, {{"rules", b ? b->rules : json::array()}});
-        }
-        if (method == "event.emit") {
+    });
+    reg({"event.emit"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.behaviors.emit(p.at("event").get<std::string>());
             return ok(id);
-        }
-        if (method == "physics.play")  { ctx.sim_running = true;  return ok(id); }
-        if (method == "physics.pause") { ctx.sim_running = false; return ok(id); }
-        if (method == "physics.setGravity") {
+    });
+    reg({"physics.play"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { ctx.sim_running = true;  return ok(id); });
+    reg({"physics.pause"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { ctx.sim_running = false; return ok(id); });
+    reg({"physics.setGravity"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.physics.world().set_gravity(v3(p.at("gravity"), glm::vec3(0, -9.81f, 0)));
             return ok(id);
-        }
-        if (method == "physics.getGravity")
-            return ok(id, {{"gravity", v3(ctx.physics.world().gravity())}});
-        if (method == "physics.raycast") {
+    });
+    reg({"physics.getGravity"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, {{"gravity", v3(ctx.physics.world().gravity())}}); });
+    reg({"physics.raycast"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             glm::vec3 o = v3(p.at("origin"), glm::vec3(0));
             glm::vec3 d = v3(p.at("direction"), glm::vec3(0, -1, 0));
             float maxd = p.value("max_distance", 1000.0f);
@@ -858,8 +907,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 if (rb.registered && rb.handle == h.body)
                     r["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, r);
-        }
-        if (method == "joint.create") {
+    });
+    reg({"joint.create"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string a = p.at("a").get<std::string>();
             auto ea = scene.find(a);
             if (ea == entt::null) return fail(id, "no such entity: " + a);
@@ -883,8 +932,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (!jr || !jr->registered)
                 return fail(id, "joint create failed (both bodies need a RigidBody)");
             return ok(id, {{"a", a}, {"b", j.b}, {"type", j.type}});
-        }
-        if (method == "joint.remove") {
+    });
+    reg({"joint.remove"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::vector<entt::entity> hit;
             bool by_a = p.contains("a"), by_b = p.contains("b");
             for (auto [e, j] : scene.registry.view<Joint>().each()) {
@@ -895,8 +944,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             for (auto e : hit) scene.registry.remove<Joint>(e);
             ctx.physics.sync_joints(scene);
             return ok(id, {{"removed", (int)hit.size()}});
-        }
-        if (method == "physics.overlapSphere") {
+    });
+    reg({"physics.overlapSphere"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             glm::vec3 c = v3(p.at("center"), glm::vec3(0));
             float r = p.value("radius", 1.0f);
             ctx.physics.sync(scene);
@@ -907,8 +956,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     names.push_back(scene.registry.get<Name>(e).value);
             }
             return ok(id, {{"entities", names}});
-        }
-        if (method == "physics.spherecast") {
+    });
+    reg({"physics.spherecast"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             glm::vec3 o = v3(p.at("origin"), glm::vec3(0));
             glm::vec3 d = v3(p.at("direction"), glm::vec3(0, -1, 0));
             float r = p.value("radius", 0.5f);
@@ -922,8 +971,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             if (e != entt::null && scene.registry.all_of<Name>(e))
                 res["entity"] = scene.registry.get<Name>(e).value;
             return ok(id, res);
-        }
-        if (method == "observe.entities") {
+    });
+    reg({"observe.entities"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             update_world_transforms(scene);
             CameraComp& cam = scene.camera();
             int vw = ctx.offscreen.width(), vh = ctx.offscreen.height();
@@ -945,8 +994,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 arr.push_back(je);
             }
             return ok(id, {{"entities", arr}, {"width", vw}, {"height", vh}});
-        }
-        if (method == "observe.pick") {
+    });
+    reg({"observe.pick"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             update_world_transforms(scene);
             CameraComp& cam = scene.camera();
             int vw = p.value("width", ctx.offscreen.width());
@@ -999,8 +1048,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                 r["distance"] = best_t;
             }
             return ok(id, r);
-        }
-        if (method == "observe.segment") {
+    });
+    reg({"observe.segment"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             int w = p.value("width", ctx.offscreen.width());
             int h = p.value("height", ctx.offscreen.height());
             json by_index = json::object();   // "1" -> name
@@ -1021,12 +1070,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     flat_shader().set("uMVP", pr * v * m);
                     flat_shader().set("uColor", glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
                 });
-            std::string path = resolve_out_path(p, "segment.png");
+            std::string path = resolve_out_path(ctx, p, "segment.png");
             if (!ctx.offscreen.save_png(path)) return fail(id, "segment write failed");
             return ok(id, {{"colorKey", by_index}, {"colors", by_color},
                            {"path", path}, {"width", w}, {"height", h}});
-        }
-        if (method == "observe.depth") {
+    });
+    reg({"observe.depth"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             int w = p.value("width", ctx.offscreen.width());
             int h = p.value("height", ctx.offscreen.height());
             CameraComp& cam = scene.camera();
@@ -1052,12 +1101,12 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
                     depth_shader().set("uNear", near_z);
                     depth_shader().set("uFar", far_z);
                 });
-            std::string path = resolve_out_path(p, "depth.png");
+            std::string path = resolve_out_path(ctx, p, "depth.png");
             if (!ctx.offscreen.save_png(path)) return fail(id, "depth write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h},
                            {"near", near_z}, {"far", far_z}});
-        }
-        if (method == "observe.describe") {
+    });
+    reg({"observe.describe"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             update_world_transforms(scene);
             CameraComp& cam = scene.camera();
             int vw = ctx.offscreen.width(), vh = ctx.offscreen.height();
@@ -1139,8 +1188,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             return ok(id, {{"camera", {{"position", v3(cam.position)},
                                        {"forward", v3(glm::normalize(cam.target - cam.position))}}},
                            {"entities", ents}, {"relations", rels}});
-        }
-        if (method == "observe.stats") {
+    });
+    reg({"observe.stats"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.renderer.render(scene, ctx.offscreen.id(), ctx.offscreen.width(),
                                 ctx.offscreen.height());
             Framebuffer::bind_default(ctx.offscreen.width(), ctx.offscreen.height());
@@ -1148,21 +1197,23 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             return ok(id, {{"entities", s.entities}, {"visible", s.visible},
                            {"culled", s.culled}, {"draw_calls", s.draw_calls},
                            {"instances", s.instances}, {"groups", s.groups},
-                           {"cpu_ms", s.cpu_ms}});
-        }
-        if (method == "observe.screenshot") {
+                           {"cpu_ms", s.cpu_ms}, {"lights_dropped", s.lights_dropped}, {"transparent", s.transparent}, {"shadows_dropped", s.shadows_dropped},
+                           {"world_recomputed", g_world_stats.recomputed}, {"world_calls", g_world_stats.calls},
+                           {"active_sounds", ctx.audio.active_count()}});
+    });
+    reg({"observe.screenshot"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             int w = p.value("width", ctx.offscreen.width());
             int h = p.value("height", ctx.offscreen.height());
             ctx.offscreen.resize(w, h);
 
             std::string path = p.value("path", std::string());
             if (path.empty()) {
-                fs::path dir = fs::current_path() / "screenshots";
+                fs::path dir = write_root(ctx) / "screenshots";
                 fs::create_directories(dir);
                 path = (dir / "latest.png").string();
-            } else if (fs::path(path).has_parent_path()) {
-                std::error_code ec;
-                fs::create_directories(fs::path(path).parent_path(), ec);
+            } else {
+                confine(ctx, path);
+                make_parent(path);
             }
 
             ctx.renderer.render(scene, ctx.offscreen.id(), w, h);
@@ -1170,10 +1221,10 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             Framebuffer::bind_default(w, h);
             if (!saved) return fail(id, "screenshot write failed");
             return ok(id, {{"path", path}, {"width", w}, {"height", h}});
-        }
+    });
 
-        if (method == "record.start") {
-            std::string path = resolve_out_path(p, "record.jsonl");
+    reg({"record.start"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
+            std::string path = resolve_out_path(ctx, p, "record.jsonl");
             ctx.record_file.close();
             ctx.record_file.clear();
             ctx.record_file.open(path, std::ios::out | std::ios::trunc);
@@ -1181,14 +1232,14 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             ctx.recording = true;
             ctx.record_path = path;
             return ok(id, {{"path", path}});
-        }
-        if (method == "record.stop") {
+    });
+    reg({"record.stop"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             ctx.recording = false;
             ctx.record_file.flush();
             ctx.record_file.close();
             return ok(id, {{"path", ctx.record_path}});
-        }
-        if (method == "record.play") {
+    });
+    reg({"record.play"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             std::string path = p.at("path").get<std::string>();
             std::ifstream f(path);
             if (!f) return fail(id, "record not found: " + path);
@@ -1213,17 +1264,41 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
             }
             ctx.recording = was_rec;
             return ok(id, {{"played", n}, {"failed", failed}, {"path", path}});
-        }
+    });
 
-        if (method == "plugin.list")
-            return ok(id, {{"plugins", ctx.plugins ? ctx.plugins->list() : json::array()}});
-        if (method == "plugin.load") {
+    reg({"plugin.list"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json { return ok(id, {{"plugins", ctx.plugins ? ctx.plugins->list() : json::array()}}); });
+    reg({"plugin.load"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
+            if (!ctx.allow_plugin_load)
+                return fail(id, "permission denied: plugin.load is disabled -- start the engine with --allow-plugin-load");
             if (!ctx.plugins) return fail(id, "plugin host unavailable");
             std::string path = p.at("path").get<std::string>();
             std::string nm = ctx.plugins->load_library(path, ctx);
             if (nm.empty()) return fail(id, "plugin load failed: " + path);
             return ok(id, {{"name", nm}});
-        }
+    });
+
+}
+
+static const CmdTable& command_table() {
+    static const CmdTable t = [] { CmdTable r; register_commands(r); return r; }();
+    return t;
+}
+nlohmann::json dispatch(CommandContext& ctx, const json& req) {
+    const json id = req.value("id", json(nullptr));
+    const std::string method = req.value("method", std::string());
+    const json p = req.value("params", json::object());
+    Scene& scene = ctx.scene;
+    ++ctx.command_seq;
+
+    if (ctx.recording && method != "quit" && method.rfind("record.", 0) != 0) {
+        ctx.record_file << req.dump() << '\n';
+        ctx.record_file.flush();
+    }
+
+    try {
+        const auto& table = command_table().map;
+        if (auto it = table.find(method); it != table.end())
+            return it->second(ctx, id, p, scene);
 
         // plugins get a shot at anything the core engine does not recognise
         if (ctx.plugins) {
@@ -1236,6 +1311,8 @@ nlohmann::json dispatch(CommandContext& ctx, const json& req) {
         }
 
         return fail(id, "unknown method: " + method);
+    } catch (const PermissionError& ex) {
+        return fail(id, std::string("permission denied: ") + ex.what());
     } catch (const std::exception& ex) {
         return fail(id, std::string("exception: ") + ex.what());
     }

@@ -43,7 +43,7 @@ public:
             entt::entity e = ctx.scene.find(it->first);
             auto* t = e != entt::null ? ctx.scene.registry.try_get<Transform>(e) : nullptr;
             if (!t) { it = spins_.erase(it); continue; }
-            t->euler_deg += it->second.axis * it->second.deg_per_sec * dt;
+            t->add_euler_deg(it->second.axis * it->second.deg_per_sec * dt);
             ++it;
         }
     }
