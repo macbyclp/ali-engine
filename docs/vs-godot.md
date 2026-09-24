@@ -28,7 +28,7 @@ is for.
 
 | Area | ali-engine | Godot 4.3 | Impact | Priority |
 |---|---|---|---|---|
-| Cross-platform | ❌ Windows x64 only | ✅ Win/Mac/Linux/mobile/web/console | can't distribute a game | 🔴 |
+| Cross-platform | ⚠️ Windows x64 + Linux (X11 / headless EGL) | ✅ Win/Mac/Linux/mobile/web/console | no Mac / mobile / web builds yet | 🔴 |
 | Anti-aliasing | ✅ FXAA | ✅ MSAA / TAA / FXAA | (MSAA would be sharper) | 🟢 done |
 | Audio | ✅ buses, streaming, pitch, fades | ✅ + DSP effect chains | no reverb / EQ nodes yet | 🟡 |
 | Animation depth | ⚠️ state machine + cross-fade | ✅ + blend trees + IK + root motion | hard to do a polished character | 🔴 |

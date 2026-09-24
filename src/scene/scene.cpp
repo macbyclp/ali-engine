@@ -250,7 +250,7 @@ entt::entity Scene::load_entity(const json& je) {
         }
         if (je.contains("animator")) {
             registry.emplace<AnimatorController>(e, animator_from_json(je["animator"]));
-            registry.get_or_emplace<AnimationPlayer>(e);
+            (void)registry.get_or_emplace<AnimationPlayer>(e);
         }
         if (je.contains("terrain")) {
             const auto& jt = je["terrain"];
@@ -520,9 +520,13 @@ std::vector<std::string> Scene::instantiate(const json& prefab, const std::strin
         }
     }
 
+    // If `new_root` is taken, create() would silently suffix the root -- and the children's
+    // parent links (built from the requested name) would then point at the *other* entity.
+    // Pick the free name up front so root and parent links agree.
+    const std::string root_name = unique_name(new_root.empty() ? "entity" : new_root);
     std::unordered_map<std::string, std::string> remap;
     for (const auto& s : src_names)
-        remap[s] = (s == src_root) ? new_root : new_root + "/" + s;
+        remap[s] = (s == src_root) ? root_name : root_name + "/" + s;
 
     // append the prefab's entities directly into the live registry -- existing
     // entities, physics bodies and runtime state are untouched.
@@ -538,9 +542,10 @@ std::vector<std::string> Scene::instantiate(const json& prefab, const std::strin
             je["transform"]["position"] = json::array({at.x, at.y, at.z});
         entt::entity e = load_entity(je);
         created.push_back(registry.get<Name>(e).value);
+        if (nm == src_root) std::rotate(created.begin(), created.end() - 1, created.end());
         resolve_gpu_mesh(e);   // only the new entities; the rest of the scene is already resolved
     }
-    return created;
+    return created;   // root first
 }
 
 void Scene::resolve_gpu_meshes() {

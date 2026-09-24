@@ -57,6 +57,8 @@ Kanaldan gelen komutlar keyfi dosya yazamaz ve keyfi kod yükleyemez:
 | `entity.list` | — | `{names:[...]}` |
 | `entity.spawn` | `{name?, primitive?, gltf_path?, build?, position?, rotation?, rotation_quat?, scale?, <material>, body?}` | `{name}` |
 | `entity.destroy` | `{name}` | — |
+| `entity.get` | `{name}` | tek varlığın sahne JSON'u + `world_position` + `children:[...]` (`scene.state`'ten çok daha ucuz) |
+| `entity.duplicate` | `{name, new_name?, position?}` | `{name, created:[...]}` — varlığı alt ağacıyla birlikte klonlar (dosyasız prefab); ad doluysa `.N` eklenir, kopya aynı ebeveynin altında kalır |
 | `mesh.build` | `{name, build:[step,...]}` | `{triangles}` — prosedürel mesh / CSG (aşağı bkz.) |
 | `terrain.create` | `{name?, size?, resolution?, height?, octaves?, frequency?, seed?, <material>}` | `{name, resolution}` |
 | `terrain.sculpt` | `{name, at:[x,_,z], radius?, strength?, mode?}` — mode: `raise`\|`lower`\|`smooth`\|`flatten` | — |
@@ -66,7 +68,7 @@ Kanaldan gelen komutlar keyfi dosya yazamaz ve keyfi kod yükleyemez:
 | `entity.setBody` | `{name, type?, shape?, mass?, restitution?, friction?}` | — |
 | `entity.setParent` | `{name, parent}` (boş parent = ayır) | — |
 | `prefab.save` | `{root, path}` | `{path, entities}` |
-| `prefab.instantiate` | `{path, name, position?}` | `{created:[...]}` |
+| `prefab.instantiate` | `{path, name, position?}` | `{created:[...]}` (kök adı doluysa `.N` eklenir; ilk eleman kök) |
 | `animation.play` | `{name, clip?, speed?, loop?, restart?, fade?}` | — (`fade` sn → önceki klipten crossfade) |
 | `animation.pause` / `animation.stop` | `{name}` | — |
 | `animation.list` | `{name}` | `{clips:[...]}` |

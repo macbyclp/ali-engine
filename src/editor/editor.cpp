@@ -425,9 +425,9 @@ void Editor::status_bar(CommandContext& ctx) {
     ImGui::Begin("##status", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::TextDisabled(eng::i18n::T("Output Log"));
+    ImGui::TextDisabled("%s", eng::i18n::T("Output Log"));
     ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
-    ImGui::TextDisabled(eng::i18n::T("Cmd"));
+    ImGui::TextDisabled("%s", eng::i18n::T("Cmd"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(420);
     if (ImGui::InputTextWithHint("##cmd", eng::i18n::T("Enter JSON Command"), console_buf_, sizeof(console_buf_),
@@ -544,7 +544,7 @@ void Editor::panel_details(CommandContext& ctx) {
     ImGui::Begin(eng::i18n::L("Details"));
     auto& reg = ctx.scene.registry;
     entt::entity e = ctx.scene.find(selected_);
-    if (e == entt::null) { ImGui::TextDisabled(eng::i18n::T("Select an object")); ImGui::End(); return; }
+    if (e == entt::null) { ImGui::TextDisabled("%s", eng::i18n::T("Select an object")); ImGui::End(); return; }
 
     ImGui::TextUnformatted(selected_.c_str());
     ImGui::SameLine();
@@ -722,10 +722,10 @@ void Editor::panel_animations(CommandContext& ctx) {
         ImGui::Combo("##snapstep", &snap_tr_idx_, "0.1\0" "0.25\0" "0.5\0" "1.0\0");
     } else if (gizmo_snap_) {
         ImGui::SameLine();
-        ImGui::TextDisabled(gizmo_op_ == 120 ? "15 deg" : "0.1");
+        ImGui::TextDisabled("%s", gizmo_op_ == 120 ? "15 deg" : "0.1");
     }
     ImGui::Separator();
-    ImGui::TextDisabled(eng::i18n::T("Skinned entities"));
+    ImGui::TextDisabled("%s", eng::i18n::T("Skinned entities"));
     for (auto [e, mr, ap] : ctx.scene.registry.view<MeshRenderer, AnimationPlayer>().each()) {
         auto* n = ctx.scene.registry.try_get<Name>(e);
         if (!n) continue;
@@ -742,7 +742,7 @@ void Editor::panel_timeline(CommandContext& ctx) {
     if (!ap || !mr || !mr->skinned) {
         ImVec2 c = ImGui::GetContentRegionAvail();
         ImGui::SetCursorPos({c.x * 0.5f - 60, c.y * 0.5f});
-        ImGui::TextDisabled(eng::i18n::T("No Animation Selected"));
+        ImGui::TextDisabled("%s", eng::i18n::T("No Animation Selected"));
         ImGui::End();
         return;
     }

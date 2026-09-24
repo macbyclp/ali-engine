@@ -21,6 +21,16 @@ FetchContent_Declare(entt GIT_REPOSITORY https://github.com/skypjack/entt.git GI
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+# GLFW 3.4 builds its Wayland backend by default on Linux and hard-fails without
+# wayland-scanner. The engine runs fine on X11 / XWayland (and headless via EGL), so
+# only build the Wayland backend when its tooling is actually installed.
+if(UNIX AND NOT APPLE AND NOT DEFINED GLFW_BUILD_WAYLAND)
+    find_program(ALI_WAYLAND_SCANNER wayland-scanner)
+    if(NOT ALI_WAYLAND_SCANNER)
+        message(STATUS "wayland-scanner not found: building GLFW with X11 only")
+        set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+    endif()
+endif()
 FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TAG 3.4)
 
 FetchContent_Declare(glad

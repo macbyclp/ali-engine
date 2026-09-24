@@ -48,7 +48,8 @@ public:
     // Prefab: a JSON fragment holding an entity and its descendants.
     nlohmann::json export_subtree(const std::string& root) const;
     // Instantiate `prefab` with names prefixed by `new_root`; the subtree root
-    // becomes exactly `new_root`. Returns the created names. `at` offsets the root.
+    // becomes `new_root` (suffixed ".N" if taken). Returns the created names, root first.
+    // `at` offsets the root.
     std::vector<std::string> instantiate(const nlohmann::json& prefab,
                                          const std::string& new_root,
                                          const glm::vec3& at, bool use_at);

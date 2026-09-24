@@ -182,6 +182,32 @@ try:
     else:
         print("SKIP audio recovery (no audio device)")
 
+    # ---- entity.get / entity.duplicate -------------------------------------------------------------
+    e.call("scene.reset")
+    e.call("entity.spawn", name="crate", primitive="cube", position=[1, 2, 3], base_color=[0.9, 0.1, 0.1])
+    e.call("entity.spawn", name="lid", primitive="cube", position=[0, 1, 0], scale=[1, 0.1, 1])
+    e.call("entity.setParent", name="lid", parent="crate")
+    r = e.call("entity.get", name="crate")
+    g = r.get("result", {})
+    check(r["ok"] and g.get("name") == "crate" and g.get("children") == ["lid"], "entity.get returns the entity + children", str(r))
+    check(g.get("mesh", {}).get("primitive") == "cube", "entity.get includes the mesh block", str(g))
+    r = e.call("entity.get", name="lid")
+    wp = r.get("result", {}).get("world_position", [0, 0, 0])
+    check(r["ok"] and abs(wp[1] - 3.0) < 1e-4, "entity.get world_position follows the parent", str(wp))
+    check(not e.call("entity.get", name="ghost")["ok"], "entity.get on a missing entity fails")
+    r = e.call("entity.duplicate", name="crate", new_name="crate2", position=[5, 0, 0])
+    check(r["ok"] and r["result"]["created"] == ["crate2", "crate2/lid"], "entity.duplicate clones the subtree", str(r))
+    g = e.call("entity.get", name="crate2/lid")["result"]
+    check(g.get("parent") == "crate2", "duplicated child points at the new root", str(g))
+    check(e.call("entity.get", name="crate2")["result"]["transform"]["position"] == [5, 0, 0], "entity.duplicate honours position")
+    # name collision: root is suffixed and the child's parent link must follow it
+    r = e.call("entity.duplicate", name="crate")
+    nm = r.get("result", {}).get("name", "")
+    check(r["ok"] and nm not in ("", "crate"), "entity.duplicate without new_name picks a free name", str(r))
+    g = e.call("entity.get", name=nm)["result"]
+    check(len(g.get("children", [])) == 1, "…and its child is parented to the copy, not the original", str(g))
+    check(e.call("entity.get", name="crate")["result"]["children"] == ["lid"], "…the original keeps only its own child")
+
     # ---- record / replay stays inside the root ---------------------------------------------------
     r = e.call("record.start", path=f"{REL}/rec.jsonl"); check(r["ok"], "record.start inside the root")
     e.call("entity.spawn", name="rec1", primitive="cube")

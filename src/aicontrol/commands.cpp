@@ -369,7 +369,7 @@ static void register_commands(CmdTable& reg) {
             mr.primitive = "terrain";
             apply_material(mr, p);
             if (mr.base_color == glm::vec3(0.8f)) mr.base_color = {0.42f, 0.48f, 0.34f};
-            scene.registry.get_or_emplace<Transform>(e);
+            (void)scene.registry.get_or_emplace<Transform>(e);
             // terrain is walkable by default -- a static heightfield collider
             if (p.value("body", true)) {
                 auto& rb = scene.registry.get_or_emplace<RigidBody>(e);
@@ -433,6 +433,34 @@ static void register_commands(CmdTable& reg) {
             auto created = scene.instantiate(pf, name, at, p.contains("position"));
             ctx.physics.sync(scene);
             return ok(id, {{"created", created}});
+    });
+    // One entity as scene JSON (+ world-space pose): far cheaper than scene.state when
+    // the agent only needs to inspect a single object.
+    reg({"entity.get"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
+            std::string name = p.at("name").get<std::string>();
+            auto e = scene.find(name);
+            if (e == entt::null) return fail(id, "no such entity: " + name);
+            update_world_transforms(scene);
+            json je = scene.entity_json(e);
+            if (auto* wt = scene.registry.try_get<WorldTransform>(e))
+                je["world_position"] = v3(wt->position);
+            json kids = json::array();
+            for (auto [c, h, n] : scene.registry.view<Hierarchy, Name>().each())
+                if (h.parent_name == name) kids.push_back(n.value);
+            je["children"] = kids;
+            return ok(id, je);
+    });
+    // Clone an entity and its whole subtree in memory (prefab.save + prefab.instantiate
+    // without the file). The copy stays under the original's parent.
+    reg({"entity.duplicate"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
+            std::string name = p.at("name").get<std::string>();
+            if (scene.find(name) == entt::null) return fail(id, "no such entity: " + name);
+            std::string new_name = p.value("new_name", name);
+            glm::vec3 at = v3(p.value("position", json()), glm::vec3(0));
+            auto created = scene.instantiate(scene.export_subtree(name), new_name, at,
+                                             p.contains("position"));
+            ctx.physics.sync(scene);
+            return ok(id, {{"name", created.front()}, {"created", created}});
     });
     reg({"entity.setBody"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
             auto e = scene.find(p.at("name").get<std::string>());
@@ -581,7 +609,7 @@ static void register_commands(CmdTable& reg) {
             AnimatorController c = animator_from_json(p);
             if (c.states.empty()) return fail(id, "animator needs at least one state");
             scene.registry.emplace_or_replace<AnimatorController>(e, std::move(c));
-            scene.registry.get_or_emplace<AnimationPlayer>(e);
+            (void)scene.registry.get_or_emplace<AnimationPlayer>(e);
             return ok(id, {{"states", p.value("states", json::array()).size()}});
     });
     reg({"animator.param"}, [](CommandContext& ctx, const json& id, const json& p, Scene& scene) -> json {
